@@ -50,6 +50,8 @@ pub fn perform<S>(stream: &mut S, my_id: &HostId, their_id: &PeerId) -> io::Resu
     try!(send_exchange(stream, &my_exchange));
     let their_exchange = try!(receive_exchange(stream));
     println!("Received exchange: {:?}", their_exchange);
+    try!(verify_exchange(&my_proposal, &their_proposal, &their_actual_id, &their_exchange));
+    println!("Verified exchange");
     Err(io::Error::new(io::ErrorKind::Other, "handshake not fully implemented"))
 }
 
@@ -139,3 +141,16 @@ fn receive_exchange(mut reader: &mut io::Read) -> io::Result<Exchange> {
     parse_from_bytes(&msg).map_err(pbetio)
 }
 
+// step 2.1. Verify -- verify their exchange packet is good.
+fn verify_exchange(my_proposal: &Propose, their_proposal: &Propose, their_id: &PeerId, exchange: &Exchange) -> io::Result<()> {
+    let mut size = their_proposal.compute_size() as usize;
+    size += my_proposal.compute_size() as usize;
+    size += exchange.get_epubkey().len();
+
+    let mut corpus = Vec::with_capacity(size);
+    try!(their_proposal.write_to_vec(&mut corpus).map_err(pbetio));
+    try!(my_proposal.write_to_vec(&mut corpus).map_err(pbetio));
+    try!(corpus.write_all(&exchange.get_epubkey()));
+
+    their_id.verify(&corpus, exchange.get_signature())
+}
