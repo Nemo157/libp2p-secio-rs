@@ -7,5 +7,5 @@ authors = ["Wim Looman <wim@nemo157.com>"]
 libp2p-identity = { path = "../libp2p-identity" }
 msgio = { path = "../msgio" }
 protobuf = "*"
-ring = { path = "../ring" }
-untrusted = "*"
+ring = "0.5.3"
+untrusted = "0.3.1"
