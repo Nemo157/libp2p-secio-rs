@@ -5,6 +5,7 @@ use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use ring::{ agreement, digest, hmac, rand };
 use untrusted::Input;
 use secstream::{ self, SecStream };
+use crypto::aes;
 
 use data::{ Propose, Exchange };
 
@@ -26,7 +27,7 @@ fn pbetio(e: ProtobufError) -> io::Error {
     }
 }
 
-fn select(proposal: &Propose) -> io::Result<(&'static agreement::Algorithm, &'static str, &'static digest::Algorithm)> {
+fn select(proposal: &Propose) -> io::Result<(&'static agreement::Algorithm, aes::KeySize, &'static digest::Algorithm)> {
     // this may be difficult to get to match the go implementation, I think we will need to use the
     // exact same hashing algorithm otherwise we'll decide on a different order to select the
     // parameters in...
@@ -42,7 +43,7 @@ fn select(proposal: &Propose) -> io::Result<(&'static agreement::Algorithm, &'st
     if !proposal.get_hashes().split(',').any(|s| s == SUPPORTED_HASH) {
         return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common hash"));
     }
-    Ok((&agreement::ECDH_P384, SUPPORTED_CIPHER, &digest::SHA256)) // TODO: Return actual (exchange,cipher,hash)
+    Ok((&agreement::ECDH_P384, aes::KeySize::KeySize256, &digest::SHA256)) // TODO: Return actual (exchange,cipher,hash)
 }
 
 pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Result<SecStream<S>> where S: io::Read + io::Write {
@@ -88,10 +89,11 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
         }
         actual_id
     };
+    println!("identified peer as: {:?}", their_id);
 
     // step 1.2 Selection -- select/agree on best encryption parameters
     let (curve, cipher, hash) = try!(select(&their_proposal));
-    println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, cipher, SUPPORTED_HASH));
+    println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, SUPPORTED_CIPHER, SUPPORTED_HASH));
 
     // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
     let my_ephemeral_priv_key = try!(agreement::EphemeralPrivateKey::generate(curve, &rand).map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to compute public ephemeral key")));
@@ -152,7 +154,7 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
             |key| {
                 let seed = b"key expansion";
                 let (iv_size, cipher_key_size) = match cipher {
-                    "AES-256" => (16, 32),
+                    aes::KeySize::KeySize256 => (16, 32),
                     _ => unimplemented!(),
                 };
 
@@ -200,11 +202,16 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
             }));
 
     // TODO: need to maybe swap keys, just try this order for now
+    // let (my_shared_keys, their_shared_keys) = (their_shared_keys, my_shared_keys);
+
     let my_hmac = hmac::SigningKey::new(hash, &my_shared_keys.2);
     let their_hmac = hmac::VerificationKey::new(hash, &their_shared_keys.2);
 
+    let my_ctr = aes::ctr(cipher, &my_shared_keys.1, &my_shared_keys.0);
+    let their_ctr = aes::ctr(cipher, &their_shared_keys.1, &their_shared_keys.0);
+
     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
-    let mut secstream = secstream::create(stream, my_hmac, their_hmac);
+    let mut secstream = secstream::create(stream, (my_ctr, my_hmac), (their_ctr, their_hmac));
     try!(secstream.write_lpm(their_proposal.get_rand()));
     let my_nonce_in = try!(secstream.read_lpm());
     if my_nonce[..] != my_nonce_in[..] {
