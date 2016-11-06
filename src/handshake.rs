@@ -8,16 +8,14 @@ use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use ring::{ agreement, rand };
 use untrusted::Input;
 use secstream::{ self, SecStream };
-use crypto::aes;
 use mhash::MultiHash;
-use hash::HashAlgorithm;
 
+use cipher::CipherAlgorithm;
+use hash::HashAlgorithm;
 use data::{ Propose, Exchange };
 
 // Only supported ECDH curve
 const SUPPORTED_CURVE: &'static str = "P-384";
-// Only supported Cipher
-const SUPPORTED_CIPHER: &'static str = "AES-256";
 
 const NONCE_SIZE: usize = 16;
 
@@ -30,18 +28,18 @@ fn pbetio(e: ProtobufError) -> io::Error {
     }
 }
 
-fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreement::Algorithm, aes::KeySize, HashAlgorithm)> {
+fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreement::Algorithm, CipherAlgorithm, HashAlgorithm)> {
     // TODO: actually select the algorithms
     if !proposal.get_exchanges().split(',').any(|s| s == SUPPORTED_CURVE) {
-        return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common exchange"));
+        return Err(io::Error::new(io::ErrorKind::Other, "couldn't select a common exchange"));
     }
-    if !proposal.get_ciphers().split(',').any(|s| s == SUPPORTED_CIPHER) {
-        return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common cipher"));
+    if !proposal.get_ciphers().split(',').any(|s| s == CipherAlgorithm::all()[0].to_string()) {
+        return Err(io::Error::new(io::ErrorKind::Other, "couldn't select a common cipher"));
     }
     if !proposal.get_hashes().split(',').any(|s| s == HashAlgorithm::all()[0].to_string()) {
-        return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common hash"));
+        return Err(io::Error::new(io::ErrorKind::Other, "couldn't select a common hash"));
     }
-    Ok((&agreement::ECDH_P384, aes::KeySize::KeySize256, HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
+    Ok((&agreement::ECDH_P384, CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
 pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Result<SecStream<S>> where S: io::Read + io::Write {
@@ -62,7 +60,7 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
         proposal.set_rand(my_nonce.as_ref().to_owned());
         proposal.set_pubkey(try!(my_id.pub_key().to_protobuf()));
         proposal.set_exchanges(SUPPORTED_CURVE.to_owned());
-        proposal.set_ciphers(SUPPORTED_CIPHER.to_owned());
+        proposal.set_ciphers(CipherAlgorithm::all()[0].to_string());
         proposal.set_hashes(HashAlgorithm::all()[0].to_string());
         proposal
     };
@@ -101,7 +99,7 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
 
     // step 1.2 Selection -- select/agree on best encryption parameters
     let (curve, cipher, hash) = try!(select(&their_proposal, order));
-    println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, SUPPORTED_CIPHER, hash));
+    println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, cipher, hash));
 
     // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
     let my_ephemeral_priv_key = try!(agreement::EphemeralPrivateKey::generate(curve, &rand).map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to compute public ephemeral key")));
@@ -161,13 +159,8 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
             io::Error::new(io::ErrorKind::Other, "agree ephemeral failed"),
             |key| {
                 let seed = b"key expansion";
-                let (iv_size, cipher_key_size) = match cipher {
-                    aes::KeySize::KeySize256 => (16, 32),
-                    _ => unimplemented!(),
-                };
 
-                let hmac_key_size = 20;
-                let required_bytes = 2 * (iv_size + cipher_key_size + hmac_key_size);
+                let required_bytes = 2 * (cipher.iv_size() + cipher.key_size() + hash.key_size());
                 let mut bytes = Vec::with_capacity(required_bytes);
 
                 let signer = hash.signer(key);
@@ -184,11 +177,11 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
                 let mut first_iv = bytes;
                 let mut second_iv = first_iv.split_off(required_bytes / 2);
 
-                let mut first_cipher_key = first_iv.split_off(iv_size);
-                let mut second_cipher_key = second_iv.split_off(iv_size);
+                let mut first_cipher_key = first_iv.split_off(cipher.iv_size());
+                let mut second_cipher_key = second_iv.split_off(cipher.iv_size());
 
-                let first_mac_key = first_cipher_key.split_off(cipher_key_size);
-                let second_mac_key = second_cipher_key.split_off(cipher_key_size);
+                let first_mac_key = first_cipher_key.split_off(cipher.key_size());
+                let second_mac_key = second_cipher_key.split_off(cipher.key_size());
 
                 let first_shared_key = (first_iv, first_cipher_key, first_mac_key);
                 let second_shared_key = (second_iv, second_cipher_key, second_mac_key);
@@ -205,8 +198,8 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
     let my_hmac = hash.signer(&my_shared_keys.2);
     let their_hmac = hash.verifier(&their_shared_keys.2);
 
-    let my_ctr = aes::ctr(cipher, &my_shared_keys.1, &my_shared_keys.0);
-    let their_ctr = aes::ctr(cipher, &their_shared_keys.1, &their_shared_keys.0);
+    let my_ctr = cipher.encryptor(&my_shared_keys.1, &my_shared_keys.0);
+    let their_ctr = cipher.decryptor(&their_shared_keys.1, &their_shared_keys.0);
 
     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
     let mut secstream = secstream::create(stream, (my_ctr, my_hmac), (their_ctr, their_hmac));

@@ -25,6 +25,13 @@ const ALL: &'static [HashAlgorithm] = &[
 impl HashAlgorithm {
     pub fn all() -> &'static [HashAlgorithm] { ALL }
 
+    pub fn key_size(self) -> usize {
+        match self {
+            HashAlgorithm::Sha2256 => 20,
+            HashAlgorithm::__NonExhaustive => unreachable!(),
+        }
+    }
+
     pub fn signer(self, key: &[u8]) -> Box<Signer> {
         match self {
             HashAlgorithm::Sha2256 => Box::new(sha2::Sha2256Signer::new(key)),

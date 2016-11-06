@@ -6,6 +6,8 @@ extern crate untrusted;
 extern crate crypto;
 extern crate mhash;
 
+mod aes;
+mod cipher;
 mod data;
 mod handshake;
 mod hash;
