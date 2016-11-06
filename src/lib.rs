@@ -4,6 +4,7 @@ extern crate protobuf;
 extern crate ring;
 extern crate untrusted;
 extern crate crypto;
+extern crate mhash;
 
 mod data;
 mod secstream;

@@ -1,4 +1,7 @@
 use std::io;
+use std::cmp::Ordering;
+use std::iter::FromIterator;
+
 use identity::{ HostId, PeerId };
 use msgio::{ ReadLpm, WriteLpm };
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
@@ -6,6 +9,7 @@ use ring::{ agreement, digest, hmac, rand };
 use untrusted::Input;
 use secstream::{ self, SecStream };
 use crypto::aes;
+use mhash::MultiHash;
 
 use data::{ Propose, Exchange };
 
@@ -27,13 +31,8 @@ fn pbetio(e: ProtobufError) -> io::Error {
     }
 }
 
-fn select(proposal: &Propose) -> io::Result<(&'static agreement::Algorithm, aes::KeySize, &'static digest::Algorithm)> {
-    // this may be difficult to get to match the go implementation, I think we will need to use the
-    // exact same hashing algorithm otherwise we'll decide on a different order to select the
-    // parameters in...
-    // 
-    // Easy workaround for now: we only support one exchange, cipher and hash so we either talk
-    // using them or fail to select an implementation.
+fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreement::Algorithm, aes::KeySize, &'static digest::Algorithm)> {
+    // TODO: actually select the algorithms
     if !proposal.get_exchanges().split(',').any(|s| s == SUPPORTED_CURVE) {
         return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common exchange"));
     }
@@ -91,8 +90,18 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
     };
     println!("identified peer as: {:?}", their_id);
 
+    let order = {
+        let order1 = MultiHash::generate_sha2_256(Vec::from_iter(their_proposal.get_pubkey().iter().chain(my_nonce.iter()).cloned()));
+        let order2 = MultiHash::generate_sha2_256(Vec::from_iter(my_proposal.get_pubkey().iter().chain(their_proposal.get_rand()).cloned()));
+        order1.to_bytes().cmp(&order2.to_bytes())
+    };
+
+    if order == Ordering::Equal {
+        return Err(io::Error::new(io::ErrorKind::Other, "talking to self (same socket. must be reuseport + dialing self)"));
+    }
+
     // step 1.2 Selection -- select/agree on best encryption parameters
-    let (curve, cipher, hash) = try!(select(&their_proposal));
+    let (curve, cipher, hash) = try!(select(&their_proposal, order));
     println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, SUPPORTED_CIPHER, SUPPORTED_HASH));
 
     // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
@@ -146,7 +155,7 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
 
     // step 2.2. Keys -- generate keys for mac + encryption
 
-    let (my_shared_keys, their_shared_keys) = try!(agreement::agree_ephemeral(
+    let (shared_keys_1, shared_keys_2) = try!(agreement::agree_ephemeral(
             my_ephemeral_priv_key,
             curve,
             Input::from(their_ephemeral_pub_key),
@@ -201,8 +210,11 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
                 Ok((first_shared_key, second_shared_key))
             }));
 
-    // TODO: need to maybe swap keys, just try this order for now
-    // let (my_shared_keys, their_shared_keys) = (their_shared_keys, my_shared_keys);
+    let (my_shared_keys, their_shared_keys) = match order {
+        Ordering::Greater => (shared_keys_1, shared_keys_2),
+        Ordering::Less => (shared_keys_2, shared_keys_1),
+        Ordering::Equal => unreachable!(),
+    };
 
     let my_hmac = hmac::SigningKey::new(hash, &my_shared_keys.2);
     let their_hmac = hmac::VerificationKey::new(hash, &their_shared_keys.2);
