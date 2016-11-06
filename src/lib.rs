@@ -7,7 +7,9 @@ extern crate crypto;
 extern crate mhash;
 
 mod data;
-mod secstream;
 mod handshake;
+mod hash;
+mod secstream;
+mod sha2;
 
 pub use secstream::SecStream;

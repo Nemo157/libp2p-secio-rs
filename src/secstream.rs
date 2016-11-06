@@ -1,27 +1,27 @@
 use std::{ io, fmt };
 use msgio::{ ReadLpm, WriteLpm };
 use identity::{ HostId, PeerId };
-use ring::{ hmac };
 use crypto::buffer::{ RefReadBuffer, RefWriteBuffer };
 use crypto::symmetriccipher::{ Decryptor, Encryptor, SynchronousStreamCipher };
 
+use hash::{ Signer, Verifier };
 use handshake;
 
 pub struct SecStream<S> where S: io::Read + io::Write {
     stream: S,
     local_ctr: Box<SynchronousStreamCipher + 'static>,
-    local_hmac_key: hmac::SigningKey,
+    local_hmac: Box<Signer>,
     remote_ctr: Box<SynchronousStreamCipher + 'static>,
-    remote_hmac_key: hmac::VerificationKey,
+    remote_hmac: Box<Verifier>,
 }
 
-pub fn create<S>(stream: S, (local_ctr, local_hmac_key): (Box<SynchronousStreamCipher + 'static>, hmac::SigningKey), (remote_ctr, remote_hmac_key): (Box<SynchronousStreamCipher + 'static>, hmac::VerificationKey)) -> SecStream<S> where S: io::Read + io::Write{
+pub fn create<S>(stream: S, (local_ctr, local_hmac): (Box<SynchronousStreamCipher + 'static>, Box<Signer + 'static>), (remote_ctr, remote_hmac): (Box<SynchronousStreamCipher + 'static>, Box<Verifier + 'static>)) -> SecStream<S> where S: io::Read + io::Write{
     SecStream {
         stream: stream,
         local_ctr: local_ctr,
-        local_hmac_key: local_hmac_key,
+        local_hmac: local_hmac,
         remote_ctr: remote_ctr,
-        remote_hmac_key: remote_hmac_key,
+        remote_hmac: remote_hmac,
     }
 }
 
@@ -34,9 +34,9 @@ impl<S> SecStream<S> where S: io::Read + io::Write {
         // MAC is stored at the end of the message.
         // Assume digest algorithm is the same in both directions, should add
         // some way to get the digest size from the VerificationKey.
-        let data_len = msg.len() - self.local_hmac_key.digest_algorithm().output_len;
+        let data_len = msg.len() - self.remote_hmac.digest_len();
         let mac = msg.split_off(data_len);
-        try!(hmac::verify(&self.remote_hmac_key, &msg, &mac).map_err(|_| io::Error::new(io::ErrorKind::Other, "MAC verification failed")));
+        try!(self.remote_hmac.verify(&msg, &mac).map_err(|_| io::Error::new(io::ErrorKind::Other, "MAC verification failed")));
         let mut data = vec![0; data_len];
         try!(self.remote_ctr.decrypt(&mut RefReadBuffer::new(&msg), &mut RefWriteBuffer::new(&mut data), false).map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Encryption failed: {:?}", e))));
         Ok(data)
@@ -61,12 +61,8 @@ impl<S> WriteLpm for SecStream<S> where S: io::Read + io::Write {
     fn write_lpm(&mut self, buf: &[u8]) -> io::Result<()> {
         let mut data = vec![0; buf.len()];
         try!(self.local_ctr.encrypt(&mut RefReadBuffer::new(&buf), &mut RefWriteBuffer::new(&mut data), false).map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Encryption failed: {:?}", e))));
-        let mac = {
-            let mut ctx = hmac::SigningContext::with_key(&self.local_hmac_key);
-            ctx.update(&data);
-            ctx.sign()
-        };
-        data.extend(mac.as_ref());
+        let mac = self.local_hmac.sign(&data);
+        data.extend(mac);
         self.stream.write_lpm(&data)
     }
 }

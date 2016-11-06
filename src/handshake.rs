@@ -5,11 +5,12 @@ use std::iter::FromIterator;
 use identity::{ HostId, PeerId };
 use msgio::{ ReadLpm, WriteLpm };
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
-use ring::{ agreement, digest, hmac, rand };
+use ring::{ agreement, rand };
 use untrusted::Input;
 use secstream::{ self, SecStream };
 use crypto::aes;
 use mhash::MultiHash;
+use hash::HashAlgorithm;
 
 use data::{ Propose, Exchange };
 
@@ -17,8 +18,6 @@ use data::{ Propose, Exchange };
 const SUPPORTED_CURVE: &'static str = "P-384";
 // Only supported Cipher
 const SUPPORTED_CIPHER: &'static str = "AES-256";
-// Only supported Hash
-const SUPPORTED_HASH: &'static str = "SHA256";
 
 const NONCE_SIZE: usize = 16;
 
@@ -31,7 +30,7 @@ fn pbetio(e: ProtobufError) -> io::Error {
     }
 }
 
-fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreement::Algorithm, aes::KeySize, &'static digest::Algorithm)> {
+fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreement::Algorithm, aes::KeySize, HashAlgorithm)> {
     // TODO: actually select the algorithms
     if !proposal.get_exchanges().split(',').any(|s| s == SUPPORTED_CURVE) {
         return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common exchange"));
@@ -39,10 +38,10 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreemen
     if !proposal.get_ciphers().split(',').any(|s| s == SUPPORTED_CIPHER) {
         return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common cipher"));
     }
-    if !proposal.get_hashes().split(',').any(|s| s == SUPPORTED_HASH) {
+    if !proposal.get_hashes().split(',').any(|s| s == HashAlgorithm::all()[0].to_string()) {
         return Err(io::Error::new(io::ErrorKind::Other, "couldn't not select a common hash"));
     }
-    Ok((&agreement::ECDH_P384, aes::KeySize::KeySize256, &digest::SHA256)) // TODO: Return actual (exchange,cipher,hash)
+    Ok((&agreement::ECDH_P384, aes::KeySize::KeySize256, HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
 pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Result<SecStream<S>> where S: io::Read + io::Write {
@@ -64,7 +63,7 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
         proposal.set_pubkey(try!(my_id.pub_key().to_protobuf()));
         proposal.set_exchanges(SUPPORTED_CURVE.to_owned());
         proposal.set_ciphers(SUPPORTED_CIPHER.to_owned());
-        proposal.set_hashes(SUPPORTED_HASH.to_owned());
+        proposal.set_hashes(HashAlgorithm::all()[0].to_string());
         proposal
     };
 
@@ -102,7 +101,7 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
 
     // step 1.2 Selection -- select/agree on best encryption parameters
     let (curve, cipher, hash) = try!(select(&their_proposal, order));
-    println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, SUPPORTED_CIPHER, SUPPORTED_HASH));
+    println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, SUPPORTED_CIPHER, hash));
 
     // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
     let my_ephemeral_priv_key = try!(agreement::EphemeralPrivateKey::generate(curve, &rand).map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to compute public ephemeral key")));
@@ -171,26 +170,13 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
                 let required_bytes = 2 * (iv_size + cipher_key_size + hmac_key_size);
                 let mut bytes = Vec::with_capacity(required_bytes);
 
-                let key = hmac::SigningKey::new(hash, key);
-                let mut a = {
-                    let mut ctx = hmac::SigningContext::with_key(&key);
-                    ctx.update(seed);
-                    ctx.sign()
-                };
+                let signer = hash.signer(key);
+                let mut a = signer.sign(seed);
 
                 while bytes.len() < required_bytes {
-                    let b = {
-                        let mut ctx = hmac::SigningContext::with_key(&key);
-                        ctx.update(a.as_ref());
-                        ctx.update(seed);
-                        ctx.sign()
-                    };
-                    bytes.extend_from_slice(&b.as_ref());
-                    a = {
-                        let mut ctx = hmac::SigningContext::with_key(&key);
-                        ctx.update(a.as_ref());
-                        ctx.sign()
-                    };
+                    let b = signer.sign_all(&[a.as_ref(), seed]);
+                    bytes.extend_from_slice(b.as_ref());
+                    a = signer.sign(a.as_ref());
                 }
 
                 bytes.truncate(required_bytes);
@@ -216,8 +202,8 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
         Ordering::Equal => unreachable!(),
     };
 
-    let my_hmac = hmac::SigningKey::new(hash, &my_shared_keys.2);
-    let their_hmac = hmac::VerificationKey::new(hash, &their_shared_keys.2);
+    let my_hmac = hash.signer(&my_shared_keys.2);
+    let their_hmac = hash.verifier(&their_shared_keys.2);
 
     let my_ctr = aes::ctr(cipher, &my_shared_keys.1, &my_shared_keys.0);
     let their_ctr = aes::ctr(cipher, &their_shared_keys.1, &their_shared_keys.0);
