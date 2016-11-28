@@ -88,8 +88,8 @@ pub fn perform<S>(mut stream: S, my_id: &HostId, their_id: &PeerId) -> io::Resul
     println!("identified peer as: {:?}", their_id);
 
     let order = {
-        let order1 = MultiHash::generate_sha2_256(Vec::from_iter(their_proposal.get_pubkey().iter().chain(my_nonce.iter()).cloned()));
-        let order2 = MultiHash::generate_sha2_256(Vec::from_iter(my_proposal.get_pubkey().iter().chain(their_proposal.get_rand()).cloned()));
+        let order1 = MultiHash::generate_sha2_256(&Vec::from_iter(their_proposal.get_pubkey().iter().chain(my_nonce.iter()).cloned()));
+        let order2 = MultiHash::generate_sha2_256(&Vec::from_iter(my_proposal.get_pubkey().iter().chain(their_proposal.get_rand()).cloned()));
         order1.to_bytes().cmp(&order2.to_bytes())
     };
 
