@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["Wim Looman <wim@nemo157.com>"]
 
 [dependencies]
-libp2p-identity = { path = "../libp2p-identity" }
-msgio = { path = "../msgio" }
+libp2p-identity = { path = "../libp2p-identity-rs" }
+msgio = { path = "../msgio-rs" }
 protobuf = "*"
 ring = "0.5.3"
 untrusted = "0.3.1"
