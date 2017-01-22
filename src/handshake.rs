@@ -215,12 +215,10 @@ impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Er
                         corpus
                     };
 
-                    let rand = rand::SystemRandom::new();
-
                     let my_exchange = {
                         let mut exchange = Exchange::new();
                         exchange.set_epubkey(my_ephemeral_pub_key.to_owned());
-                        exchange.set_signature(self.my_id.sign(&rand, &my_corpus)?);
+                        exchange.set_signature(self.my_id.sign(&my_corpus)?);
                         exchange
                     };
 
