@@ -17,6 +17,9 @@ mod handshake;
 mod hash;
 mod secstream;
 mod sha2;
+mod curve;
+mod shared;
+mod ecdh;
 
 use std::io;
 use identity::{ HostId, PeerId };

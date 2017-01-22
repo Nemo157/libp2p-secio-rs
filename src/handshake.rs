@@ -1,23 +1,19 @@
 use std::io;
-use std::mem;
 use std::cmp::Ordering;
 use std::iter::FromIterator;
 
 use identity::{ HostId, PeerId };
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
-use ring::{ agreement, rand };
-use untrusted::Input;
+use ring::rand;
 use secstream::{ SecStream };
 use mhash::MultiHash;
 use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
 use tokio_core::io::EasyBuf;
 
+use curve::{ CurveAlgorithm, CurvePrivateKey };
 use cipher::CipherAlgorithm;
 use hash::HashAlgorithm;
 use data::{ Propose, Exchange };
-
-// Only supported ECDH curve
-const SUPPORTED_CURVE: &'static str = "P-384";
 
 const NONCE_SIZE: usize = 16;
 
@@ -44,15 +40,14 @@ pub struct Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + S
     their_id: PeerId,
     step: Option<Step>,
 
-    curve: &'static agreement::Algorithm,
+    curve: CurveAlgorithm,
     cipher: CipherAlgorithm,
     hash: HashAlgorithm,
     order: Ordering,
     my_nonce: [u8; NONCE_SIZE],
     my_proposal_bytes: Vec<u8>,
     their_proposal_bytes: EasyBuf,
-    my_ephemeral_pub_key: Vec<u8>,
-    my_ephemeral_priv_key: Option<agreement::EphemeralPrivateKey>,
+    my_ephemeral_priv_key: Option<CurvePrivateKey>,
     their_proposal: Propose,
     my_proposal: Propose,
 }
@@ -66,9 +61,9 @@ fn pbetio(e: ProtobufError) -> io::Error {
     }
 }
 
-fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreement::Algorithm, CipherAlgorithm, HashAlgorithm)> {
+fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, CipherAlgorithm, HashAlgorithm)> {
     // TODO: actually select the algorithms
-    if !proposal.get_exchanges().split(',').any(|s| s == SUPPORTED_CURVE) {
+    if !proposal.get_exchanges().split(',').any(|s| s == CurveAlgorithm::all()[0].to_string()) {
         return Err(io::Error::new(io::ErrorKind::Other, "couldn't select a common exchange"));
     }
     if !proposal.get_ciphers().split(',').any(|s| s == CipherAlgorithm::all()[0].to_string()) {
@@ -77,7 +72,7 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(&'static agreemen
     if !proposal.get_hashes().split(',').any(|s| s == HashAlgorithm::all()[0].to_string()) {
         return Err(io::Error::new(io::ErrorKind::Other, "couldn't select a common hash"));
     }
-    Ok((&agreement::ECDH_P384, CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
+    Ok((CurveAlgorithm::all()[0], CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
 impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
@@ -89,14 +84,13 @@ impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stre
             their_id: their_id,
             step: Some(Step::Propose),
 
-            curve: &agreement::ECDH_P384,
+            curve: CurveAlgorithm::all()[0],
             cipher: CipherAlgorithm::all()[0],
             hash: HashAlgorithm::all()[0],
             order: Ordering::Equal,
             my_nonce: [0; NONCE_SIZE],
             my_proposal_bytes: Vec::new(),
             their_proposal_bytes: EasyBuf::new(),
-            my_ephemeral_pub_key: Vec::new(),
             my_ephemeral_priv_key: None,
             their_proposal: Propose::new(),
             my_proposal: Propose::new(),
@@ -126,7 +120,7 @@ impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Er
                         let mut proposal = Propose::new();
                         proposal.set_rand(self.my_nonce.as_ref().to_owned());
                         proposal.set_pubkey(self.my_id.pub_key().to_protobuf()?);
-                        proposal.set_exchanges(SUPPORTED_CURVE.to_owned());
+                        proposal.set_exchanges(CurveAlgorithm::all()[0].to_string());
                         proposal.set_ciphers(CipherAlgorithm::all()[0].to_string());
                         proposal.set_hashes(HashAlgorithm::all()[0].to_string());
                         proposal
@@ -203,35 +197,29 @@ impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Er
 
                     // step 1.2 Selection -- select/agree on best encryption parameters
                     let (curve, cipher, hash) = select(&self.their_proposal, self.order)?;
-                    println!("Selected (curve, cipher, hash): {:?}", (SUPPORTED_CURVE, cipher, hash));
+                    println!("Selected (curve, cipher, hash): {:?}", (curve, cipher, hash));
                     self.curve = curve;
                     self.cipher = cipher;
                     self.hash = hash;
 
-                    let rand = rand::SystemRandom::new();
-
                     // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
-                    self.my_ephemeral_priv_key = Some(agreement::EphemeralPrivateKey::generate(self.curve, &rand).map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to compute public ephemeral key"))?);
-                    self.my_ephemeral_pub_key = {
-                        let mut pub_key = vec![0; self.my_ephemeral_priv_key.as_ref().unwrap().public_key_len()];
-                        self.my_ephemeral_priv_key.as_ref().unwrap().compute_public_key(&mut pub_key).map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to compute public ephemeral key"))?;
-                        // TODO: This is the wrong format, need to add X9.62 §4.36 marshalling
-                        // to ring for compatibility with the Go implementation
-                        pub_key
-                    };
+                    self.my_ephemeral_priv_key = Some(curve.generate_priv_key()?);
+                    let my_ephemeral_pub_key = self.my_ephemeral_priv_key.as_mut().unwrap().pub_key()?;
 
                     // Gather corpus to sign.
                     let my_corpus = {
                         let mut corpus = Vec::new();
                         corpus.extend_from_slice(&self.my_proposal_bytes);
                         corpus.extend_from_slice(self.their_proposal_bytes.as_slice());
-                        corpus.extend_from_slice(&self.my_ephemeral_pub_key);
+                        corpus.extend_from_slice(my_ephemeral_pub_key);
                         corpus
                     };
 
+                    let rand = rand::SystemRandom::new();
+
                     let my_exchange = {
                         let mut exchange = Exchange::new();
-                        exchange.set_epubkey(mem::replace(&mut self.my_ephemeral_pub_key, Vec::new()));
+                        exchange.set_epubkey(my_ephemeral_pub_key.to_owned());
                         exchange.set_signature(self.my_id.sign(&rand, &my_corpus)?);
                         exchange
                     };
@@ -299,58 +287,10 @@ impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Er
                     println!("Verified exchange");
 
                     // step 2.2. Keys -- generate keys for mac + encryption
-
-                    let (shared_keys_1, shared_keys_2) = agreement::agree_ephemeral(
-                            self.my_ephemeral_priv_key.take().unwrap(),
-                            self.curve,
-                            Input::from(their_ephemeral_pub_key),
-                            io::Error::new(io::ErrorKind::Other, "agree ephemeral failed"),
-                            |key| {
-                                let seed = b"key expansion";
-
-                                let required_bytes = 2 * (self.cipher.iv_size() + self.cipher.key_size() + self.hash.key_size());
-                                let mut bytes = Vec::with_capacity(required_bytes);
-
-                                let signer = self.hash.signer(key);
-                                let mut a = signer.sign(seed);
-
-                                while bytes.len() < required_bytes {
-                                    let b = signer.sign_all(&[a.as_ref(), seed]);
-                                    bytes.extend_from_slice(b.as_ref());
-                                    a = signer.sign(a.as_ref());
-                                }
-
-                                bytes.truncate(required_bytes);
-
-                                let mut first_iv = bytes;
-                                let mut second_iv = first_iv.split_off(required_bytes / 2);
-
-                                let mut first_cipher_key = first_iv.split_off(self.cipher.iv_size());
-                                let mut second_cipher_key = second_iv.split_off(self.cipher.iv_size());
-
-                                let first_mac_key = first_cipher_key.split_off(self.cipher.key_size());
-                                let second_mac_key = second_cipher_key.split_off(self.cipher.key_size());
-
-                                let first_shared_key = (first_iv, first_cipher_key, first_mac_key);
-                                let second_shared_key = (second_iv, second_cipher_key, second_mac_key);
-
-                                Ok((first_shared_key, second_shared_key))
-                            })?;
-
-                    let (my_shared_keys, their_shared_keys) = match self.order {
-                        Ordering::Greater => (shared_keys_1, shared_keys_2),
-                        Ordering::Less => (shared_keys_2, shared_keys_1),
-                        Ordering::Equal => unreachable!(),
-                    };
-
-                    let my_hmac = self.hash.signer(&my_shared_keys.2);
-                    let their_hmac = self.hash.verifier(&their_shared_keys.2);
-
-                    let my_ctr = self.cipher.encryptor(&my_shared_keys.1, &my_shared_keys.0);
-                    let their_ctr = self.cipher.decryptor(&their_shared_keys.1, &their_shared_keys.0);
+                    let algos = self.my_ephemeral_priv_key.take().unwrap().agree_with(their_ephemeral_pub_key, self.hash, self.cipher, self.order == Ordering::Less)?;
 
                     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
-                    self.secstream = Some(SecStream::create(self.transport.take().unwrap(), (my_ctr, my_hmac), (their_ctr, their_hmac)));
+                    self.secstream = Some(SecStream::create(self.transport.take().unwrap(), algos));
                     self.step = Some(Step::SendNonce(self.their_proposal.get_rand().to_owned()));
                 }
 

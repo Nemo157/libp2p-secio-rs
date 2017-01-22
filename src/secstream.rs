@@ -1,27 +1,22 @@
 use std::{ io, fmt };
 
-use hash::{ Signer, Verifier };
-use cipher::{ Encryptor, Decryptor };
-
 use futures::{ Sink, Stream, Poll, Async, StartSend };
 use tokio_core::io::EasyBuf;
 
+use hash::{ Signer, Verifier };
+use cipher::{ Encryptor, Decryptor };
+use shared::SharedAlgorithms;
+
 pub struct SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
     transport: S,
-    encryptor: Box<Encryptor>,
-    signer: Box<Signer>,
-    decryptor: Box<Decryptor>,
-    verifier: Box<Verifier>,
+    algos: SharedAlgorithms,
 }
 
 impl<S> SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
-    pub(crate) fn create(transport: S, (encryptor, signer): (Box<Encryptor>, Box<Signer>), (decryptor, verifier): (Box<Decryptor>, Box<Verifier>)) -> SecStream<S> {
+    pub(crate) fn create(transport: S, algos: SharedAlgorithms) -> SecStream<S> {
         SecStream {
             transport: transport,
-            encryptor: encryptor,
-            signer: signer,
-            decryptor: decryptor,
-            verifier: verifier,
+            algos: algos,
         }
     }
 
@@ -29,9 +24,9 @@ impl<S> SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stre
         // MAC is stored at the end of the message.
         // Assume digest algorithm is the same in both directions, should add
         // some way to get the digest size from the VerificationKey.
-        let data_len = msg.len() - self.verifier.digest_len();
-        try!(self.verifier.verify(&msg[..data_len], &msg[data_len..]).map_err(|_| io::Error::new(io::ErrorKind::Other, "MAC verification failed")));
-        let data = try!(self.decryptor.decrypt(&msg[..data_len]).map_err(|_| io::Error::new(io::ErrorKind::Other, "Encryption failed")));
+        let data_len = msg.len() - self.algos.digest_len();
+        try!(self.algos.verify(&msg[..data_len], &msg[data_len..]).map_err(|_| io::Error::new(io::ErrorKind::Other, "MAC verification failed")));
+        let data = try!(self.algos.decrypt(&msg[..data_len]).map_err(|_| io::Error::new(io::ErrorKind::Other, "Encryption failed")));
         Ok(data)
     }
 }
@@ -54,8 +49,8 @@ impl<S> Sink for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Erro
     type SinkError = io::Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        let mut data = self.encryptor.encrypt(&item).map_err(|_| io::Error::new(io::ErrorKind::Other, "Encryption failed"))?;
-        let mac = self.signer.sign(&data);
+        let mut data = self.algos.encrypt(&item).map_err(|_| io::Error::new(io::ErrorKind::Other, "Encryption failed"))?;
+        let mac = self.algos.sign(&data);
         data.extend(mac);
         self.transport.start_send(data)
     }
