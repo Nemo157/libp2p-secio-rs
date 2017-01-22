@@ -1,25 +1,16 @@
 #![feature(pub_restricted)]
 
-extern crate libp2p_identity as identity;
-extern crate protobuf;
-extern crate ring;
-extern crate untrusted;
-extern crate crypto;
-extern crate mhash;
 #[macro_use]
 extern crate futures;
+extern crate libp2p_crypto as crypto;
+extern crate libp2p_identity as identity;
+extern crate mhash;
+extern crate protobuf;
 extern crate tokio_core;
 
-mod aes;
-mod cipher;
 mod data;
 mod handshake;
-mod hash;
 mod secstream;
-mod sha2;
-mod curve;
-mod shared;
-mod ecdh;
 
 use std::io;
 use identity::{ HostId, PeerId };

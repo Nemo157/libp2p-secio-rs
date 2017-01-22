@@ -3,9 +3,9 @@ use std::{ io, fmt };
 use futures::{ Sink, Stream, Poll, Async, StartSend };
 use tokio_core::io::EasyBuf;
 
-use hash::{ Signer, Verifier };
-use cipher::{ Encryptor, Decryptor };
-use shared::SharedAlgorithms;
+use crypto::hash::{ Signer, Verifier };
+use crypto::cipher::{ Encryptor, Decryptor };
+use crypto::shared::SharedAlgorithms;
 
 pub struct SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
     transport: S,

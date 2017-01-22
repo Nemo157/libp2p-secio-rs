@@ -4,15 +4,13 @@ use std::iter::FromIterator;
 
 use identity::{ HostId, PeerId };
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
-use ring::rand;
 use secstream::{ SecStream };
 use mhash::MultiHash;
 use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
 use tokio_core::io::EasyBuf;
 
-use curve::{ CurveAlgorithm, CurvePrivateKey };
-use cipher::CipherAlgorithm;
-use hash::HashAlgorithm;
+use crypto::rand;
+use crypto::{ HashAlgorithm, CipherAlgorithm, CurveAlgorithm, CurvePrivateKey };
 use data::{ Propose, Exchange };
 
 const NONCE_SIZE: usize = 16;
@@ -107,12 +105,11 @@ impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Er
             match self.step.take().expect("Only none if something failed") {
                 Step::Propose => {
                     // step 1. Propose -- propose cipher suite + send pubkeys + nonce
-                    let rand = rand::SystemRandom::new();
                     println!("secure handshake start");
 
                     self.my_nonce = {
                         let mut nonce = [0; NONCE_SIZE];
-                        rand.fill(&mut nonce).map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to generate random bytes"))?;
+                        rand::fill(&mut nonce)?;
                         nonce
                     };
 
