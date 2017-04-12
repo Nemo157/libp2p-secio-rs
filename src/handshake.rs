@@ -7,7 +7,6 @@ use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use secstream::{ SecStream };
 use mhash::MultiHash;
 use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
-use tokio_core::io::EasyBuf;
 
 use crypto::rand;
 use crypto::{ HashAlgorithm, CipherAlgorithm, CurveAlgorithm, CurvePrivateKey };
@@ -24,14 +23,14 @@ enum Step {
     SendExchange(Vec<u8>),
     SendingExchange,
     ReceivingExchange,
-    ProcessingExchange(EasyBuf),
+    ProcessingExchange(Vec<u8>),
     SendNonce(Vec<u8>),
     SendingNonce,
     ReceivingNonce,
     ProcessingNonce(Vec<u8>),
 }
 
-pub struct Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
+pub struct Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
     transport: Option<S>,
     secstream: Option<SecStream<S>>,
     my_id: HostId,
@@ -44,7 +43,7 @@ pub struct Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + S
     order: Ordering,
     my_nonce: [u8; NONCE_SIZE],
     my_proposal_bytes: Vec<u8>,
-    their_proposal_bytes: EasyBuf,
+    their_proposal_bytes: Vec<u8>,
     my_ephemeral_priv_key: Option<CurvePrivateKey>,
     their_proposal: Propose,
     my_proposal: Propose,
@@ -73,7 +72,7 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, C
     Ok((CurveAlgorithm::all()[0], CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
-impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
+impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
     pub(crate) fn create(transport: S, my_id: HostId, their_id: PeerId) -> Handshake<S> {
         Handshake {
             transport: Some(transport),
@@ -88,7 +87,7 @@ impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stre
             order: Ordering::Equal,
             my_nonce: [0; NONCE_SIZE],
             my_proposal_bytes: Vec::new(),
-            their_proposal_bytes: EasyBuf::new(),
+            their_proposal_bytes: Vec::new(),
             my_ephemeral_priv_key: None,
             their_proposal: Propose::new(),
             my_proposal: Propose::new(),
@@ -96,7 +95,7 @@ impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stre
     }
 }
 
-impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
+impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
     type Item = SecStream<S>;
     type Error = io::Error;
 

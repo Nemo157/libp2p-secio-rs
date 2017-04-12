@@ -1,18 +1,17 @@
 use std::{ io, fmt };
 
 use futures::{ Sink, Stream, Poll, Async, StartSend };
-use tokio_core::io::EasyBuf;
 
 use crypto::hash::{ Signer, Verifier };
 use crypto::cipher::{ Encryptor, Decryptor };
 use crypto::shared::SharedAlgorithms;
 
-pub struct SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
+pub struct SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
     transport: S,
     algos: SharedAlgorithms,
 }
 
-impl<S> SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
+impl<S> SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
     pub(crate) fn create(transport: S, algos: SharedAlgorithms) -> SecStream<S> {
         SecStream {
             transport: transport,
@@ -31,7 +30,7 @@ impl<S> SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stre
     }
 }
 
-impl<S> Stream for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
+impl<S> Stream for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
     type Item = Vec<u8>;
     type Error = io::Error;
 
@@ -44,7 +43,7 @@ impl<S> Stream for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Er
     }
 }
 
-impl<S> Sink for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> {
+impl<S> Sink for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
     type SinkItem = Vec<u8>;
     type SinkError = io::Error;
 
@@ -60,7 +59,7 @@ impl<S> Sink for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Erro
     }
 }
 
-impl<S> fmt::Debug for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=EasyBuf, Error=io::Error> + fmt::Debug {
+impl<S> fmt::Debug for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> + fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("SecStream")
             .field("transport", &self.transport)
