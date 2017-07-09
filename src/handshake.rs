@@ -2,11 +2,12 @@ use std::io;
 use std::cmp::Ordering;
 use std::iter::FromIterator;
 
+use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
 use identity::{ HostId, PeerId };
+use mhash::MultiHash;
+use msgio::MsgIo;
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use secstream::{ SecStream };
-use mhash::MultiHash;
-use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
 
 use crypto::rand;
 use crypto::{ HashAlgorithm, CipherAlgorithm, CurveAlgorithm, CurvePrivateKey };
@@ -30,7 +31,7 @@ enum Step {
     ProcessingNonce(Vec<u8>),
 }
 
-pub struct Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
+pub struct Handshake<S: MsgIo> {
     transport: Option<S>,
     secstream: Option<SecStream<S>>,
     my_id: HostId,
@@ -72,7 +73,7 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, C
     Ok((CurveAlgorithm::all()[0], CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
-impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
+impl<S: MsgIo> Handshake<S> {
     pub(crate) fn create(transport: S, my_id: HostId, their_id: PeerId) -> Handshake<S> {
         Handshake {
             transport: Some(transport),
@@ -95,7 +96,7 @@ impl<S> Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stre
     }
 }
 
-impl<S> Future for Handshake<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
+impl<S: MsgIo> Future for Handshake<S> {
     type Item = SecStream<S>;
     type Error = io::Error;
 

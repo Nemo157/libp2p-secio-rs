@@ -1,17 +1,18 @@
 use std::{ io, fmt };
 
 use futures::{ Sink, Stream, Poll, Async, StartSend };
+use msgio::MsgIo;
 
 use crypto::hash::{ Signer, Verifier };
 use crypto::cipher::{ Encryptor, Decryptor };
 use crypto::shared::SharedAlgorithms;
 
-pub struct SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
+pub struct SecStream<S: MsgIo> {
     transport: S,
     algos: SharedAlgorithms,
 }
 
-impl<S> SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
+impl<S: MsgIo> SecStream<S> {
     pub(crate) fn create(transport: S, algos: SharedAlgorithms) -> SecStream<S> {
         SecStream {
             transport: transport,
@@ -30,7 +31,7 @@ impl<S> SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stre
     }
 }
 
-impl<S> Stream for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
+impl<S: MsgIo> Stream for SecStream<S> {
     type Item = Vec<u8>;
     type Error = io::Error;
 
@@ -43,7 +44,7 @@ impl<S> Stream for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Er
     }
 }
 
-impl<S> Sink for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> {
+impl<S: MsgIo> Sink for SecStream<S> {
     type SinkItem = Vec<u8>;
     type SinkError = io::Error;
 
@@ -59,7 +60,9 @@ impl<S> Sink for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Erro
     }
 }
 
-impl<S> fmt::Debug for SecStream<S> where S: Sink<SinkItem=Vec<u8>, SinkError=io::Error> + Stream<Item=Vec<u8>, Error=io::Error> + fmt::Debug {
+impl<S: MsgIo> MsgIo for SecStream<S> { }
+
+impl<S: MsgIo + fmt::Debug> fmt::Debug for SecStream<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("SecStream")
             .field("transport", &self.transport)

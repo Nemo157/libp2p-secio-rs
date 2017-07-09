@@ -4,9 +4,10 @@ version = "0.1.0"
 authors = ["Wim Looman <wim@nemo157.com>"]
 
 [dependencies]
-libp2p-identity = { path = "../libp2p-identity-rs" }
-libp2p-crypto = { path = "../libp2p-crypto-rs" }
-protobuf = "*"
-mhash = { version = "0.2.0", features = ["generation", "sha2"] }
 futures = "*"
+libp2p-crypto = { path = "../libp2p-crypto-rs" }
+libp2p-identity = { path = "../libp2p-identity-rs" }
+mhash = { version = "0.2.0", features = ["generation", "sha2"] }
+msgio = { path = "../msgio-rs" }
+protobuf = "*"
 tokio-core = "*"
