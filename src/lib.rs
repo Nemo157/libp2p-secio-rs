@@ -1,5 +1,3 @@
-#![feature(pub_restricted)]
-
 #[macro_use]
 extern crate futures;
 extern crate libp2p_crypto as crypto;

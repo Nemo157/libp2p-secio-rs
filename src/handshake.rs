@@ -285,7 +285,7 @@ impl<S: MsgIo> Future for Handshake<S> {
                     let algos = self.my_ephemeral_priv_key.take().unwrap().agree_with(their_ephemeral_pub_key, self.hash, self.cipher, self.order == Ordering::Less)?;
 
                     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
-                    self.secstream = Some(SecStream::create(self.transport.take().unwrap(), algos));
+                    self.secstream = Some(SecStream::create(self.their_id.clone(), self.transport.take().unwrap(), algos));
                     self.step = Some(Step::SendNonce(self.their_proposal.get_rand().to_owned()));
                 }
 

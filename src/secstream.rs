@@ -3,21 +3,24 @@ use std::{ io, fmt };
 use futures::{ Sink, Stream, Poll, Async, StartSend };
 use msgio::MsgIo;
 
+use identity::PeerId;
 use crypto::hash::{ Signer, Verifier };
 use crypto::cipher::{ Encryptor, Decryptor };
 use crypto::shared::SharedAlgorithms;
 
 pub struct SecStream<S: MsgIo> {
+    peer: PeerId,
     transport: S,
     algos: SharedAlgorithms,
 }
 
 impl<S: MsgIo> SecStream<S> {
-    pub(crate) fn create(transport: S, algos: SharedAlgorithms) -> SecStream<S> {
-        SecStream {
-            transport: transport,
-            algos: algos,
-        }
+    pub(crate) fn create(peer: PeerId, transport: S, algos: SharedAlgorithms) -> SecStream<S> {
+        SecStream { peer, transport, algos }
+    }
+
+    pub fn peer(&self) -> &PeerId {
+        &self.peer
     }
 
     fn decrypt_msg(&mut self, msg: &[u8]) -> io::Result<Vec<u8>> {
