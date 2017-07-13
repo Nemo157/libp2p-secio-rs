@@ -2,7 +2,7 @@ use std::io;
 use std::cmp::Ordering;
 use std::iter::FromIterator;
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
 use identity::{ HostId, PeerId };
 use mhash::MultiHash;
@@ -18,18 +18,18 @@ const NONCE_SIZE: usize = 16;
 
 enum Step {
     Propose,
-    SendProposal(BytesMut),
+    SendProposal(Bytes),
     SendingProposal,
     ReceivingProposal,
     ProcessingProposal,
-    SendExchange(BytesMut),
+    SendExchange(Bytes),
     SendingExchange,
     ReceivingExchange,
-    ProcessingExchange(BytesMut),
-    SendNonce(BytesMut),
+    ProcessingExchange(Bytes),
+    SendNonce(Bytes),
     SendingNonce,
     ReceivingNonce,
-    ProcessingNonce(BytesMut),
+    ProcessingNonce(Bytes),
 }
 
 pub struct Handshake<S: MsgIo> {
@@ -44,8 +44,8 @@ pub struct Handshake<S: MsgIo> {
     hash: HashAlgorithm,
     order: Ordering,
     my_nonce: [u8; NONCE_SIZE],
-    my_proposal_bytes: BytesMut,
-    their_proposal_bytes: BytesMut,
+    my_proposal_bytes: Bytes,
+    their_proposal_bytes: Bytes,
     my_ephemeral_priv_key: Option<CurvePrivateKey>,
     their_proposal: Propose,
     my_proposal: Propose,
@@ -88,8 +88,8 @@ impl<S: MsgIo> Handshake<S> {
             hash: HashAlgorithm::all()[0],
             order: Ordering::Equal,
             my_nonce: [0; NONCE_SIZE],
-            my_proposal_bytes: BytesMut::new(),
-            their_proposal_bytes: BytesMut::new(),
+            my_proposal_bytes: Bytes::new(),
+            their_proposal_bytes: Bytes::new(),
             my_ephemeral_priv_key: None,
             their_proposal: Propose::new(),
             my_proposal: Propose::new(),
@@ -126,7 +126,7 @@ impl<S: MsgIo> Future for Handshake<S> {
 
                     println!("Sending proposal (curve, cipher, hash): {:?}", (self.my_proposal.get_exchanges(), self.my_proposal.get_ciphers(), self.my_proposal.get_hashes()));
 
-                    self.my_proposal_bytes = BytesMut::from(self.my_proposal.write_to_bytes().map_err(pbetio)?);
+                    self.my_proposal_bytes = Bytes::from(self.my_proposal.write_to_bytes().map_err(pbetio)?);
                     self.step = Some(Step::SendProposal(self.my_proposal_bytes.clone()));
                 }
 
@@ -184,8 +184,8 @@ impl<S: MsgIo> Future for Handshake<S> {
                     println!("identified peer as: {:?}", self.their_id);
 
                     self.order = {
-                        let order1 = MultiHash::generate_sha2_256(&BytesMut::from(Vec::from_iter(self.their_proposal.get_pubkey().iter().chain(self.my_nonce.iter()).cloned())));
-                        let order2 = MultiHash::generate_sha2_256(&BytesMut::from(Vec::from_iter(self.my_proposal.get_pubkey().iter().chain(self.their_proposal.get_rand()).cloned())));
+                        let order1 = MultiHash::generate_sha2_256(&Bytes::from(Vec::from_iter(self.their_proposal.get_pubkey().iter().chain(self.my_nonce.iter()).cloned())));
+                        let order2 = MultiHash::generate_sha2_256(&Bytes::from(Vec::from_iter(self.my_proposal.get_pubkey().iter().chain(self.their_proposal.get_rand()).cloned())));
                         order1.to_bytes().cmp(&order2.to_bytes())
                     };
 
@@ -210,7 +210,7 @@ impl<S: MsgIo> Future for Handshake<S> {
                         corpus.extend_from_slice(&self.my_proposal_bytes);
                         corpus.extend_from_slice(&self.their_proposal_bytes);
                         corpus.extend_from_slice(my_ephemeral_pub_key);
-                        corpus
+                        corpus.freeze()
                     };
 
                     let my_exchange = {
@@ -221,7 +221,7 @@ impl<S: MsgIo> Future for Handshake<S> {
                     };
 
                     println!("Sending exchange");
-                    self.step = Some(Step::SendExchange(BytesMut::from(my_exchange.write_to_bytes().map_err(pbetio)?)));
+                    self.step = Some(Step::SendExchange(Bytes::from(my_exchange.write_to_bytes().map_err(pbetio)?)));
                 }
 
                 Step::SendExchange(bytes) => {
@@ -287,7 +287,7 @@ impl<S: MsgIo> Future for Handshake<S> {
 
                     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
                     self.secstream = Some(SecStream::create(self.their_id.clone(), self.transport.take().unwrap(), algos));
-                    self.step = Some(Step::SendNonce(BytesMut::from(self.their_proposal.get_rand())));
+                    self.step = Some(Step::SendNonce(Bytes::from(self.their_proposal.get_rand())));
                 }
 
                 Step::SendNonce(bytes) => {
