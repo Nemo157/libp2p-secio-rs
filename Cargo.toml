@@ -1,13 +1,23 @@
 [package]
+authors = ["Wim Looman <wim@nemo157.com>"]
 name = "libp2p-secio"
 version = "0.1.0"
-authors = ["Wim Looman <wim@nemo157.com>"]
 
 [dependencies]
+bytes = "0.4.4"
 futures = "*"
-libp2p-crypto = { path = "../libp2p-crypto-rs" }
-libp2p-identity = { path = "../libp2p-identity-rs" }
-mhash = { version = "0.2.0", features = ["generation", "sha2"] }
-msgio = { path = "../msgio-rs" }
 protobuf = "*"
 tokio-core = "*"
+
+[dependencies.libp2p-crypto]
+path = "../libp2p-crypto-rs"
+
+[dependencies.libp2p-identity]
+path = "../libp2p-identity-rs"
+
+[dependencies.mhash]
+features = ["generation", "sha2"]
+version = "0.2.0"
+
+[dependencies.msgio]
+path = "../msgio-rs"

@@ -1,5 +1,6 @@
 use std::{ io, fmt };
 
+use bytes::BytesMut;
 use futures::{ Sink, Stream, Poll, Async, StartSend };
 use msgio::MsgIo;
 
@@ -23,24 +24,24 @@ impl<S: MsgIo> SecStream<S> {
         &self.peer
     }
 
-    fn decrypt_msg(&mut self, msg: &[u8]) -> io::Result<Vec<u8>> {
+    fn decrypt_msg(&mut self, msg: &[u8]) -> io::Result<BytesMut> {
         // MAC is stored at the end of the message.
         // Assume digest algorithm is the same in both directions, should add
         // some way to get the digest size from the VerificationKey.
         let data_len = msg.len() - self.algos.digest_len();
         try!(self.algos.verify(&msg[..data_len], &msg[data_len..]).map_err(|_| io::Error::new(io::ErrorKind::Other, "MAC verification failed")));
         let data = try!(self.algos.decrypt(&msg[..data_len]).map_err(|_| io::Error::new(io::ErrorKind::Other, "Encryption failed")));
-        Ok(data)
+        Ok(BytesMut::from(data))
     }
 }
 
 impl<S: MsgIo> Stream for SecStream<S> {
-    type Item = Vec<u8>;
+    type Item = BytesMut;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if let Some(msg) = try_ready!(self.transport.poll()) {
-            Ok(Async::Ready(Some(self.decrypt_msg(msg.as_slice())?)))
+            Ok(Async::Ready(Some(self.decrypt_msg(&msg)?)))
         } else {
             Ok(Async::Ready(None))
         }
@@ -48,14 +49,14 @@ impl<S: MsgIo> Stream for SecStream<S> {
 }
 
 impl<S: MsgIo> Sink for SecStream<S> {
-    type SinkItem = Vec<u8>;
+    type SinkItem = BytesMut;
     type SinkError = io::Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         let mut data = self.algos.encrypt(&item).map_err(|_| io::Error::new(io::ErrorKind::Other, "Encryption failed"))?;
         let mac = self.algos.sign(&data);
         data.extend(mac);
-        self.transport.start_send(data)
+        self.transport.start_send(BytesMut::from(data))
     }
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {

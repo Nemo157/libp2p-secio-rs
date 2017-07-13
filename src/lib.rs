@@ -1,10 +1,11 @@
+extern crate bytes;
 #[macro_use]
 extern crate futures;
 extern crate libp2p_crypto as crypto;
 extern crate libp2p_identity as identity;
 extern crate mhash;
-extern crate protobuf;
 extern crate msgio;
+extern crate protobuf;
 
 mod data;
 mod handshake;
