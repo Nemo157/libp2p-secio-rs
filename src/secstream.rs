@@ -3,20 +3,23 @@ use std::{ io, fmt };
 use bytes::Bytes;
 use futures::{ Sink, Stream, Poll, Async, StartSend };
 use msgio::MsgIo;
+use tokio_io::{AsyncRead, AsyncWrite};
 
 use identity::PeerId;
 use crypto::hash::{ Signer, Verifier };
 use crypto::cipher::{ Encryptor, Decryptor };
 use crypto::shared::SharedAlgorithms;
 
-pub struct SecStream<S: MsgIo> {
+type Framed<S> = ::tokio_io::codec::Framed<S, ::msgio::LengthPrefixed>;
+
+pub struct SecStream<S: AsyncRead + AsyncWrite> {
     peer: PeerId,
-    transport: S,
+    transport: Framed<S>,
     algos: SharedAlgorithms,
 }
 
-impl<S: MsgIo> SecStream<S> {
-    pub(crate) fn create(peer: PeerId, transport: S, algos: SharedAlgorithms) -> SecStream<S> {
+impl<S: AsyncRead + AsyncWrite> SecStream<S> {
+    pub(crate) fn create(peer: PeerId, transport: Framed<S>, algos: SharedAlgorithms) -> SecStream<S> {
         SecStream { peer, transport, algos }
     }
 
@@ -35,7 +38,7 @@ impl<S: MsgIo> SecStream<S> {
     }
 }
 
-impl<S: MsgIo> Stream for SecStream<S> {
+impl<S: AsyncRead + AsyncWrite> Stream for SecStream<S> {
     type Item = Bytes;
     type Error = io::Error;
 
@@ -48,7 +51,7 @@ impl<S: MsgIo> Stream for SecStream<S> {
     }
 }
 
-impl<S: MsgIo> Sink for SecStream<S> {
+impl<S: AsyncRead + AsyncWrite> Sink for SecStream<S> {
     type SinkItem = Bytes;
     type SinkError = io::Error;
 
@@ -64,9 +67,9 @@ impl<S: MsgIo> Sink for SecStream<S> {
     }
 }
 
-impl<S: MsgIo> MsgIo for SecStream<S> { }
+impl<S: AsyncRead + AsyncWrite> MsgIo for SecStream<S> { }
 
-impl<S: MsgIo + fmt::Debug> fmt::Debug for SecStream<S> {
+impl<S: AsyncRead + AsyncWrite + fmt::Debug> fmt::Debug for SecStream<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("SecStream")
             .field("transport", &self.transport)

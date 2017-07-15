@@ -6,13 +6,17 @@ use bytes::{Bytes, BytesMut};
 use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
 use identity::{ HostId, PeerId };
 use mhash::MultiHash;
-use msgio::MsgIo;
+use msgio;
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use secstream::{ SecStream };
+use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::codec::FramedParts;
 
 use crypto::rand;
 use crypto::{ HashAlgorithm, CipherAlgorithm, CurveAlgorithm, CurvePrivateKey };
 use data::{ Propose, Exchange };
+
+type Framed<S> = ::tokio_io::codec::Framed<S, ::msgio::LengthPrefixed>;
 
 const NONCE_SIZE: usize = 16;
 
@@ -32,8 +36,8 @@ enum Step {
     ProcessingNonce(Bytes),
 }
 
-pub struct Handshake<S: MsgIo> {
-    transport: Option<S>,
+pub struct Handshake<S: AsyncRead + AsyncWrite> {
+    transport: Option<Framed<S>>,
     secstream: Option<SecStream<S>>,
     my_id: HostId,
     their_id: PeerId,
@@ -74,10 +78,10 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, C
     Ok((CurveAlgorithm::all()[0], CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
-impl<S: MsgIo> Handshake<S> {
-    pub(crate) fn create(transport: S, my_id: HostId, their_id: PeerId) -> Handshake<S> {
+impl<S: AsyncRead + AsyncWrite> Handshake<S> {
+    pub(crate) fn create(transport: FramedParts<S>, my_id: HostId, their_id: PeerId) -> Handshake<S> {
         Handshake {
-            transport: Some(transport),
+            transport: Some(Framed::from_parts(transport, msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None))),
             secstream: None,
             my_id: my_id,
             their_id: their_id,
@@ -97,7 +101,7 @@ impl<S: MsgIo> Handshake<S> {
     }
 }
 
-impl<S: MsgIo> Future for Handshake<S> {
+impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
     type Item = SecStream<S>;
     type Error = io::Error;
 

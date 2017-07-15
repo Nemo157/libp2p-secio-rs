@@ -8,6 +8,7 @@ bytes = "0.4.4"
 futures = "*"
 protobuf = "*"
 tokio-core = "*"
+tokio-io = "0.1.2"
 
 [dependencies.libp2p-crypto]
 path = "../libp2p-crypto-rs"
