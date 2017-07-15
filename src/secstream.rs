@@ -1,30 +1,23 @@
-use std::{ io, fmt };
+use std::io;
 
-use bytes::Bytes;
-use futures::{ Sink, Stream, Poll, Async, StartSend };
-use msgio::MsgIo;
-use tokio_io::{AsyncRead, AsyncWrite};
+use bytes::{Bytes, BytesMut};
+use msgio;
+use tokio_io::codec::{Decoder, Encoder};
 
-use identity::PeerId;
 use crypto::hash::{ Signer, Verifier };
 use crypto::cipher::{ Encryptor, Decryptor };
 use crypto::shared::SharedAlgorithms;
 
-type Framed<S> = ::tokio_io::codec::Framed<S, ::msgio::LengthPrefixed>;
-
-pub struct SecStream<S: AsyncRead + AsyncWrite> {
-    peer: PeerId,
-    transport: Framed<S>,
+#[derive(Debug)]
+pub struct SecStream {
+    inner: msgio::LengthPrefixed,
     algos: SharedAlgorithms,
 }
 
-impl<S: AsyncRead + AsyncWrite> SecStream<S> {
-    pub(crate) fn create(peer: PeerId, transport: Framed<S>, algos: SharedAlgorithms) -> SecStream<S> {
-        SecStream { peer, transport, algos }
-    }
-
-    pub fn peer(&self) -> &PeerId {
-        &self.peer
+impl SecStream {
+    pub(crate) fn create(algos: SharedAlgorithms) -> SecStream {
+        let inner = msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None);
+        SecStream { inner, algos }
     }
 
     fn decrypt_msg(&mut self, msg: &[u8]) -> io::Result<Bytes> {
@@ -38,41 +31,29 @@ impl<S: AsyncRead + AsyncWrite> SecStream<S> {
     }
 }
 
-impl<S: AsyncRead + AsyncWrite> Stream for SecStream<S> {
+impl Decoder for SecStream {
     type Item = Bytes;
     type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        if let Some(msg) = try_ready!(self.transport.poll()) {
-            Ok(Async::Ready(Some(self.decrypt_msg(&msg)?)))
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        Ok(if let Some(msg) = self.inner.decode(src)? {
+            Some(self.decrypt_msg(&msg)?)
         } else {
-            Ok(Async::Ready(None))
-        }
+            None
+        })
     }
 }
 
-impl<S: AsyncRead + AsyncWrite> Sink for SecStream<S> {
-    type SinkItem = Bytes;
-    type SinkError = io::Error;
+impl Encoder for SecStream {
+    type Item = Bytes;
+    type Error = io::Error;
 
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let mut data = self.algos.encrypt(&item).map_err(|_| io::Error::new(io::ErrorKind::Other, "Encryption failed"))?;
         let mac = self.algos.sign(&data);
         data.extend(mac);
-        self.transport.start_send(Bytes::from(data))
-    }
-
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.transport.poll_complete()
+        self.inner.encode(Bytes::from(data), dst)
     }
 }
 
-impl<S: AsyncRead + AsyncWrite> MsgIo for SecStream<S> { }
-
-impl<S: AsyncRead + AsyncWrite + fmt::Debug> fmt::Debug for SecStream<S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("SecStream")
-            .field("transport", &self.transport)
-            .finish()
-    }
-}
+impl ::msgio::Codec for SecStream { }

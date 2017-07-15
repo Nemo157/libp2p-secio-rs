@@ -6,17 +6,15 @@ use bytes::{Bytes, BytesMut};
 use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
 use identity::{ HostId, PeerId };
 use mhash::MultiHash;
-use msgio;
+use msgio::{self, LengthPrefixed};
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
-use secstream::{ SecStream };
+use secstream::SecStream;
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::FramedParts;
+use tokio_io::codec::{Framed, FramedParts};
 
 use crypto::rand;
 use crypto::{ HashAlgorithm, CipherAlgorithm, CurveAlgorithm, CurvePrivateKey };
 use data::{ Propose, Exchange };
-
-type Framed<S> = ::tokio_io::codec::Framed<S, ::msgio::LengthPrefixed>;
 
 const NONCE_SIZE: usize = 16;
 
@@ -37,8 +35,8 @@ enum Step {
 }
 
 pub struct Handshake<S: AsyncRead + AsyncWrite> {
-    transport: Option<Framed<S>>,
-    secstream: Option<SecStream<S>>,
+    transport: Option<Framed<S, LengthPrefixed>>,
+    secstream: Option<Framed<S, SecStream>>,
     my_id: HostId,
     their_id: PeerId,
     step: Option<Step>,
@@ -102,7 +100,7 @@ impl<S: AsyncRead + AsyncWrite> Handshake<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
-    type Item = SecStream<S>;
+    type Item = (PeerId, Framed<S, SecStream>);
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -290,7 +288,9 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                     let algos = self.my_ephemeral_priv_key.take().unwrap().agree_with(their_ephemeral_pub_key, self.hash, self.cipher, self.order == Ordering::Less)?;
 
                     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
-                    self.secstream = Some(SecStream::create(self.their_id.clone(), self.transport.take().unwrap(), algos));
+                    let parts = self.transport.take().unwrap().into_parts();
+                    let secstream = SecStream::create(algos);
+                    self.secstream = Some(Framed::from_parts(parts, secstream));
                     self.step = Some(Step::SendNonce(Bytes::from(self.their_proposal.get_rand())));
                 }
 
@@ -339,7 +339,7 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                         return Err(io::Error::new(io::ErrorKind::Other, "Nonces did not match"));
                     }
 
-                    return Ok(Async::Ready(self.secstream.take().unwrap()));
+                    return Ok(Async::Ready((self.their_id.clone(), self.secstream.take().unwrap())));
                 }
             }
         }
