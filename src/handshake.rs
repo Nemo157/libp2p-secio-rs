@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, mem};
 use std::cmp::Ordering;
 use std::iter::FromIterator;
 
@@ -10,6 +10,7 @@ use msgio::{self, LengthPrefixed};
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use secstream::SecStream;
 use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::io::{ReadExact, WriteAll, read_exact, write_all};
 use tokio_io::codec::{Framed, FramedParts};
 
 use crypto::rand;
@@ -18,7 +19,7 @@ use data::{ Propose, Exchange };
 
 const NONCE_SIZE: usize = 16;
 
-enum Step {
+enum Step<S: AsyncRead + AsyncWrite> {
     Propose,
     SendProposal(Bytes),
     SendingProposal,
@@ -28,18 +29,16 @@ enum Step {
     SendingExchange,
     ReceivingExchange,
     ProcessingExchange(Bytes),
-    SendNonce(Bytes),
-    SendingNonce,
-    ReceivingNonce,
-    ProcessingNonce(Bytes),
+    SendingNonce(WriteAll<SecStream<S>, Vec<u8>>),
+    ReceivingNonce(ReadExact<SecStream<S>, [u8; NONCE_SIZE]>),
+    Invalid,
 }
 
 pub struct Handshake<S: AsyncRead + AsyncWrite> {
     transport: Option<Framed<S, LengthPrefixed>>,
-    secstream: Option<Framed<S, SecStream>>,
     my_id: HostId,
     their_id: PeerId,
-    step: Option<Step>,
+    step: Step<S>,
 
     curve: CurveAlgorithm,
     cipher: CipherAlgorithm,
@@ -77,13 +76,12 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, C
 }
 
 impl<S: AsyncRead + AsyncWrite> Handshake<S> {
-    pub(crate) fn create(transport: FramedParts<S>, my_id: HostId, their_id: PeerId) -> Handshake<S> {
+    pub(crate) fn new(transport: FramedParts<S>, my_id: HostId, their_id: PeerId) -> Handshake<S> {
         Handshake {
             transport: Some(Framed::from_parts(transport, msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None))),
-            secstream: None,
             my_id: my_id,
             their_id: their_id,
-            step: Some(Step::Propose),
+            step: Step::Propose,
 
             curve: CurveAlgorithm::all()[0],
             cipher: CipherAlgorithm::all()[0],
@@ -100,12 +98,12 @@ impl<S: AsyncRead + AsyncWrite> Handshake<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
-    type Item = (PeerId, Framed<S, SecStream>);
+    type Item = (PeerId, SecStream<S>);
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         loop {
-            match self.step.take().expect("Only none if something failed") {
+            match mem::replace(&mut self.step, Step::Invalid) {
                 Step::Propose => {
                     // step 1. Propose -- propose cipher suite + send pubkeys + nonce
                     println!("secure handshake start");
@@ -129,16 +127,16 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                     println!("Sending proposal (curve, cipher, hash): {:?}", (self.my_proposal.get_exchanges(), self.my_proposal.get_ciphers(), self.my_proposal.get_hashes()));
 
                     self.my_proposal_bytes = Bytes::from(self.my_proposal.write_to_bytes().map_err(pbetio)?);
-                    self.step = Some(Step::SendProposal(self.my_proposal_bytes.clone()));
+                    self.step = Step::SendProposal(self.my_proposal_bytes.clone());
                 }
 
                 Step::SendProposal(bytes) => {
                     match self.transport.as_mut().unwrap().start_send(bytes)? {
                         AsyncSink::Ready => {
-                            self.step = Some(Step::SendingProposal);
+                            self.step = Step::SendingProposal;
                         }
                         AsyncSink::NotReady(bytes) => {
-                            self.step = Some(Step::SendProposal(bytes));
+                            self.step = Step::SendProposal(bytes);
                             return Ok(Async::NotReady);
                         }
                     }
@@ -147,10 +145,10 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                 Step::SendingProposal => {
                     match self.transport.as_mut().unwrap().poll_complete()? {
                         Async::Ready(()) => {
-                            self.step = Some(Step::ReceivingProposal);
+                            self.step = Step::ReceivingProposal;
                         }
                         Async::NotReady => {
-                            self.step = Some(Step::SendingProposal);
+                            self.step = Step::SendingProposal;
                             return Ok(Async::NotReady);
                         }
                     }
@@ -160,13 +158,13 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                     match self.transport.as_mut().unwrap().poll()? {
                         Async::Ready(Some(bytes)) => {
                             self.their_proposal_bytes = bytes;
-                            self.step = Some(Step::ProcessingProposal);
+                            self.step = Step::ProcessingProposal;
                         }
                         Async::Ready(None) => {
                             return Err(io::Error::new(io::ErrorKind::Other, "Unexpected EOF"));
                         }
                         Async::NotReady => {
-                            self.step = Some(Step::ReceivingProposal);
+                            self.step = Step::ReceivingProposal;
                             return Ok(Async::NotReady);
                         }
                     }
@@ -223,16 +221,16 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                     };
 
                     println!("Sending exchange");
-                    self.step = Some(Step::SendExchange(Bytes::from(my_exchange.write_to_bytes().map_err(pbetio)?)));
+                    self.step = Step::SendExchange(Bytes::from(my_exchange.write_to_bytes().map_err(pbetio)?));
                 }
 
                 Step::SendExchange(bytes) => {
                     match self.transport.as_mut().unwrap().start_send(bytes)? {
                         AsyncSink::Ready => {
-                            self.step = Some(Step::SendingExchange);
+                            self.step = Step::SendingExchange;
                         }
                         AsyncSink::NotReady(bytes) => {
-                            self.step = Some(Step::SendExchange(bytes));
+                            self.step = Step::SendExchange(bytes);
                             return Ok(Async::NotReady);
                         }
                     }
@@ -241,10 +239,10 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                 Step::SendingExchange => {
                     match self.transport.as_mut().unwrap().poll_complete()? {
                         Async::Ready(()) => {
-                            self.step = Some(Step::ReceivingExchange);
+                            self.step = Step::ReceivingExchange;
                         }
                         Async::NotReady => {
-                            self.step = Some(Step::SendingExchange);
+                            self.step = Step::SendingExchange;
                             return Ok(Async::NotReady);
                         }
                     }
@@ -253,13 +251,13 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                 Step::ReceivingExchange => {
                     match self.transport.as_mut().unwrap().poll()? {
                         Async::Ready(Some(bytes)) => {
-                            self.step = Some(Step::ProcessingExchange(bytes));
+                            self.step = Step::ProcessingExchange(bytes);
                         }
                         Async::Ready(None) => {
                             return Err(io::Error::new(io::ErrorKind::Other, "Unexpected EOF"));
                         }
                         Async::NotReady => {
-                            self.step = Some(Step::ReceivingExchange);
+                            self.step = Step::ReceivingExchange;
                             return Ok(Async::NotReady);
                         }
                     }
@@ -289,57 +287,44 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
 
                     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
                     let parts = self.transport.take().unwrap().into_parts();
-                    let secstream = SecStream::create(algos);
-                    self.secstream = Some(Framed::from_parts(parts, secstream));
-                    self.step = Some(Step::SendNonce(Bytes::from(self.their_proposal.get_rand())));
+                    let secstream = SecStream::new(parts, algos);
+                    let sending = write_all(secstream, self.their_proposal.take_rand());
+                    self.step = Step::SendingNonce(sending);
                 }
 
-                Step::SendNonce(bytes) => {
-                    match self.secstream.as_mut().unwrap().start_send(bytes)? {
-                        AsyncSink::Ready => {
-                            self.step = Some(Step::SendingNonce);
-                        }
-                        AsyncSink::NotReady(bytes) => {
-                            self.step = Some(Step::SendNonce(bytes));
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::SendingNonce => {
-                    match self.secstream.as_mut().unwrap().poll_complete()? {
-                        Async::Ready(()) => {
-                            self.step = Some(Step::ReceivingNonce);
+                Step::SendingNonce(mut sending) => {
+                    match sending.poll()? {
+                        Async::Ready((secstream, _)) => {
+                            let bytes = [0; NONCE_SIZE];
+                            let receiving = read_exact(secstream, bytes);
+                            self.step = Step::ReceivingNonce(receiving);
                         }
                         Async::NotReady => {
-                            self.step = Some(Step::SendingNonce);
+                            self.step = Step::SendingNonce(sending);
                             return Ok(Async::NotReady);
                         }
                     }
                 }
 
-                Step::ReceivingNonce => {
-                    match self.secstream.as_mut().unwrap().poll()? {
-                        Async::Ready(Some(bytes)) => {
-                            self.step = Some(Step::ProcessingNonce(bytes));
-                        }
-                        Async::Ready(None) => {
-                            return Err(io::Error::new(io::ErrorKind::Other, "Unexpected EOF"));
+                Step::ReceivingNonce(mut receiving) => {
+                    match receiving.poll()? {
+                        Async::Ready((secstream, bytes)) => {
+                            if self.my_nonce[..] != bytes[..] {
+                                println!("my nonce {:?}, they gave {:?}", self.my_nonce, bytes);
+                                return Err(io::Error::new(io::ErrorKind::Other, "Nonces did not match"));
+                            }
+
+                            return Ok(Async::Ready((self.their_id.clone(), secstream)));
                         }
                         Async::NotReady => {
-                            self.step = Some(Step::ReceivingNonce);
+                            self.step = Step::ReceivingNonce(receiving);
                             return Ok(Async::NotReady);
                         }
                     }
                 }
 
-                Step::ProcessingNonce(bytes) => {
-                    if self.my_nonce[..] != bytes[..] {
-                        println!("my nonce {:?}, they gave {:?}", self.my_nonce, bytes);
-                        return Err(io::Error::new(io::ErrorKind::Other, "Nonces did not match"));
-                    }
-
-                    return Ok(Async::Ready((self.their_id.clone(), self.secstream.take().unwrap())));
+                Step::Invalid => {
+                    panic!("Should not be reachable");
                 }
             }
         }

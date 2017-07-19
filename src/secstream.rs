@@ -1,23 +1,43 @@
-use std::io;
+use std::cmp;
+use std::io::{self, Cursor};
 
-use bytes::{Bytes, BytesMut};
+use futures::{Async, AsyncSink, Poll, Stream, Sink};
+use bytes::{Buf, Bytes, BytesMut};
+use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::codec::{Decoder, Encoder, Framed, FramedParts};
 use msgio;
-use tokio_io::codec::{Decoder, Encoder};
 
 use crypto::hash::{ Signer, Verifier };
 use crypto::cipher::{ Encryptor, Decryptor };
 use crypto::shared::SharedAlgorithms;
 
 #[derive(Debug)]
-pub struct SecStream {
+pub struct SecStream<S> where S: AsyncRead + AsyncWrite {
+    done: bool,
+    buffer: Cursor<Bytes>,
+    inner: Framed<S, SecStreamCodec>,
+}
+
+#[derive(Debug)]
+struct SecStreamCodec {
     inner: msgio::LengthPrefixed,
     algos: SharedAlgorithms,
 }
 
-impl SecStream {
-    pub(crate) fn create(algos: SharedAlgorithms) -> SecStream {
+impl<S> SecStream<S> where S: AsyncRead + AsyncWrite {
+    pub(crate) fn new(parts: FramedParts<S>, algos: SharedAlgorithms) -> SecStream<S> {
+        SecStream {
+            done: false,
+            buffer: Cursor::new(Bytes::new()),
+            inner: Framed::from_parts(parts, SecStreamCodec::new(algos)),
+        }
+    }
+}
+
+impl SecStreamCodec {
+    pub(crate) fn new(algos: SharedAlgorithms) -> SecStreamCodec {
         let inner = msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None);
-        SecStream { inner, algos }
+        SecStreamCodec { inner, algos }
     }
 
     fn decrypt_msg(&mut self, msg: &[u8]) -> io::Result<Bytes> {
@@ -31,7 +51,60 @@ impl SecStream {
     }
 }
 
-impl Decoder for SecStream {
+impl<S> io::Read for SecStream<S> where S: AsyncRead + AsyncWrite {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            if self.done {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "stream is closed"));
+            }
+
+            if self.buffer.remaining() > 0 {
+                let len = cmp::min(self.buffer.remaining(), buf.len());
+                self.buffer.copy_to_slice(&mut buf[..len]);
+                return Ok(len);
+            }
+
+            match self.inner.poll()? {
+                Async::Ready(Some(buffer)) => {
+                    self.buffer = Cursor::new(buffer);
+                }
+                Async::Ready(None) => {
+                    self.done = true;
+                }
+                Async::NotReady => {
+                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "no data ready"));
+                }
+            }
+        }
+    }
+}
+
+impl<S> io::Write for SecStream<S> where S: AsyncRead + AsyncWrite {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self.inner.start_send(Bytes::from(buf))? {
+            AsyncSink::Ready => Ok(buf.len()),
+            AsyncSink::NotReady(_) => Err(io::Error::new(io::ErrorKind::WouldBlock, "stream not ready to send")),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self.inner.poll_complete()? {
+            Async::Ready(()) => Ok(()),
+            Async::NotReady => Err(io::Error::new(io::ErrorKind::WouldBlock, "stream not done sending")),
+        }
+    }
+}
+
+impl<S> AsyncRead for SecStream<S> where S: AsyncRead + AsyncWrite {
+}
+
+impl<S> AsyncWrite for SecStream<S> where S: AsyncRead + AsyncWrite {
+    fn shutdown(&mut self) -> Poll<(), io::Error> {
+        self.inner.close()
+    }
+}
+
+impl Decoder for SecStreamCodec {
     type Item = Bytes;
     type Error = io::Error;
 
@@ -44,7 +117,7 @@ impl Decoder for SecStream {
     }
 }
 
-impl Encoder for SecStream {
+impl Encoder for SecStreamCodec {
     type Item = Bytes;
     type Error = io::Error;
 
@@ -55,5 +128,3 @@ impl Encoder for SecStream {
         self.inner.encode(Bytes::from(data), dst)
     }
 }
-
-impl ::msgio::Codec for SecStream { }

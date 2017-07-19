@@ -18,11 +18,11 @@ use std::io;
 use futures::Future;
 use identity::{ HostId, PeerId };
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{Framed, FramedParts};
+use tokio_io::codec::{FramedParts};
 
 use handshake::Handshake;
 pub use secstream::SecStream;
 
-pub fn handshake<S: AsyncRead + AsyncWrite>(transport: FramedParts<S>, host: HostId, peer: PeerId) -> impl Future<Item=(PeerId, Framed<S, SecStream>), Error=io::Error> {
-    Handshake::create(transport, host, peer)
+pub fn handshake<S: AsyncRead + AsyncWrite>(transport: FramedParts<S>, host: HostId, peer: PeerId) -> impl Future<Item=(PeerId, SecStream<S>), Error=io::Error> {
+    Handshake::new(transport, host, peer)
 }
