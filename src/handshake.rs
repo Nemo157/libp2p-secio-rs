@@ -176,8 +176,10 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                     // // step 1.1 Identify -- get identity from their key
                     self.their_id = {
                         let actual_id = PeerId::from_protobuf(&self.their_proposal.get_pubkey())?;
-                        if !actual_id.matches(&self.their_id) {
-                            return Err(io::Error::new(io::ErrorKind::Other, format!("public key from actual peer {:?} didn't match provided id {:?}", actual_id, self.their_id)));
+                        if let PeerId::Unknown = self.their_id { /* ok */ } else {
+                            if !actual_id.matches(&self.their_id) {
+                                return Err(io::Error::new(io::ErrorKind::Other, format!("public key from actual peer {:?} didn't match provided id {:?}", actual_id, self.their_id)));
+                            }
                         }
                         actual_id
                     };
