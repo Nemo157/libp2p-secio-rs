@@ -10,7 +10,7 @@ use msgio::{self, LengthPrefixed};
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use secstream::SecStream;
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::io::{ReadExact, WriteAll, read_exact, write_all};
+use tokio_io::io::{Flush, ReadExact, WriteAll, flush, read_exact, write_all};
 use tokio_io::codec::{Framed, FramedParts};
 
 use crypto::rand;
@@ -30,6 +30,7 @@ enum Step<S: AsyncRead + AsyncWrite> {
     ReceivingExchange,
     ProcessingExchange(Bytes),
     SendingNonce(WriteAll<SecStream<S>, Vec<u8>>),
+    FlushingNonce(Flush<SecStream<S>>),
     ReceivingNonce(ReadExact<SecStream<S>, [u8; NONCE_SIZE]>),
     Invalid,
 }
@@ -290,19 +291,33 @@ impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
                     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
                     let parts = self.transport.take().unwrap().into_parts();
                     let secstream = SecStream::new(parts, algos);
-                    let sending = write_all(secstream, self.their_proposal.take_rand());
+                    let nonce = self.their_proposal.take_rand();
+                    let sending = write_all(secstream, nonce);
                     self.step = Step::SendingNonce(sending);
                 }
 
                 Step::SendingNonce(mut sending) => {
                     match sending.poll()? {
                         Async::Ready((secstream, _)) => {
+                            let flushing = flush(secstream);
+                            self.step = Step::FlushingNonce(flushing);
+                        }
+                        Async::NotReady => {
+                            self.step = Step::SendingNonce(sending);
+                            return Ok(Async::NotReady);
+                        }
+                    }
+                }
+
+                Step::FlushingNonce(mut flushing) => {
+                    match flushing.poll()? {
+                        Async::Ready(secstream) => {
                             let bytes = [0; NONCE_SIZE];
                             let receiving = read_exact(secstream, bytes);
                             self.step = Step::ReceivingNonce(receiving);
                         }
                         Async::NotReady => {
-                            self.step = Step::SendingNonce(sending);
+                            self.step = Step::FlushingNonce(flushing);
                             return Ok(Async::NotReady);
                         }
                     }
