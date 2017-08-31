@@ -5,10 +5,12 @@ version = "0.1.0"
 
 [dependencies]
 bytes = "0.4.4"
-futures = "*"
 protobuf = "*"
 tokio-core = "*"
 tokio-io = "0.1.2"
+
+[dependencies.futures-await]
+git = "https://github.com/alexcrichton/futures-await"
 
 [dependencies.libp2p-crypto]
 path = "../libp2p-crypto-rs"

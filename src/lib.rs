@@ -1,7 +1,9 @@
 #![feature(conservative_impl_trait)]
+#![feature(generators)]
+#![feature(proc_macro)]
 
 extern crate bytes;
-extern crate futures;
+extern crate futures_await as futures;
 extern crate libp2p_crypto as crypto;
 extern crate libp2p_identity as identity;
 extern crate mhash;
