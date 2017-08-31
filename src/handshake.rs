@@ -1,57 +1,24 @@
-use std::{io, mem};
+use std::io;
 use std::cmp::Ordering;
 use std::iter::FromIterator;
 
 use bytes::{Bytes, BytesMut};
-use futures::{ Future, Stream, Sink, Poll, Async, AsyncSink };
+use futures::{Future, Stream, Sink};
+use futures::prelude::{await, async};
 use identity::{ HostId, PeerId };
 use mhash::MultiHash;
-use msgio::{self, LengthPrefixed};
+use msgio;
 use protobuf::{ ProtobufError, Message, parse_from_bytes };
 use secstream::SecStream;
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::io::{Flush, ReadExact, WriteAll, flush, read_exact, write_all};
+use tokio_io::io::{flush, read_exact, write_all};
 use tokio_io::codec::{Framed, FramedParts};
 
 use crypto::rand;
-use crypto::{ HashAlgorithm, CipherAlgorithm, CurveAlgorithm, CurvePrivateKey };
+use crypto::{HashAlgorithm, CipherAlgorithm, CurveAlgorithm};
 use data::{ Propose, Exchange };
 
 const NONCE_SIZE: usize = 16;
-
-enum Step<S: AsyncRead + AsyncWrite> {
-    Propose,
-    SendProposal(Bytes),
-    SendingProposal,
-    ReceivingProposal,
-    ProcessingProposal,
-    SendExchange(Bytes),
-    SendingExchange,
-    ReceivingExchange,
-    ProcessingExchange(Bytes),
-    SendingNonce(WriteAll<SecStream<S>, Vec<u8>>),
-    FlushingNonce(Flush<SecStream<S>>),
-    ReceivingNonce(ReadExact<SecStream<S>, [u8; NONCE_SIZE]>),
-    Invalid,
-}
-
-struct Handshake<S: AsyncRead + AsyncWrite> {
-    transport: Option<Framed<S, LengthPrefixed>>,
-    my_id: HostId,
-    their_id: PeerId,
-    step: Step<S>,
-
-    curve: CurveAlgorithm,
-    cipher: CipherAlgorithm,
-    hash: HashAlgorithm,
-    order: Ordering,
-    my_nonce: [u8; NONCE_SIZE],
-    my_proposal_bytes: Bytes,
-    their_proposal_bytes: Bytes,
-    my_ephemeral_priv_key: Option<CurvePrivateKey>,
-    their_proposal: Propose,
-    my_proposal: Propose,
-}
 
 fn pbetio(e: ProtobufError) -> io::Error {
     match e {
@@ -76,272 +43,133 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, C
     Ok((CurveAlgorithm::all()[0], CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
-pub fn handshake<S: AsyncRead + AsyncWrite>(transport: FramedParts<S>, host: HostId, peer: PeerId) -> impl Future<Item=(PeerId, SecStream<S>), Error=io::Error> {
-    Handshake {
-        transport: Some(Framed::from_parts(transport, msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None))),
-        my_id: host,
-        their_id: peer,
-        step: Step::Propose,
+#[async]
+pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>, host: HostId, peer: PeerId) -> io::Result<(PeerId, SecStream<S>)> {
+    let transport = Framed::from_parts(transport, msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None));
 
-        curve: CurveAlgorithm::all()[0],
-        cipher: CipherAlgorithm::all()[0],
-        hash: HashAlgorithm::all()[0],
-        order: Ordering::Equal,
-        my_nonce: [0; NONCE_SIZE],
-        my_proposal_bytes: Bytes::new(),
-        their_proposal_bytes: Bytes::new(),
-        my_ephemeral_priv_key: None,
-        their_proposal: Propose::new(),
-        my_proposal: Propose::new(),
-    }
-}
+    // step 1. Propose -- propose cipher suite + send pubkeys + nonce
+    println!("secure handshake start");
 
-impl<S: AsyncRead + AsyncWrite> Future for Handshake<S> {
-    type Item = (PeerId, SecStream<S>);
-    type Error = io::Error;
+    let my_nonce = {
+        let mut nonce = [0; NONCE_SIZE];
+        rand::fill(&mut nonce)?;
+        nonce
+    };
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        loop {
-            match mem::replace(&mut self.step, Step::Invalid) {
-                Step::Propose => {
-                    // step 1. Propose -- propose cipher suite + send pubkeys + nonce
-                    println!("secure handshake start");
+    let my_proposal = {
+        let mut proposal = Propose::new();
+        proposal.set_rand(my_nonce.as_ref().to_owned());
+        proposal.set_pubkey(host.pub_key().to_protobuf()?);
+        proposal.set_exchanges(CurveAlgorithm::all()[0].to_string());
+        proposal.set_ciphers(CipherAlgorithm::all()[0].to_string());
+        proposal.set_hashes(HashAlgorithm::all()[0].to_string());
+        proposal
+    };
 
-                    self.my_nonce = {
-                        let mut nonce = [0; NONCE_SIZE];
-                        rand::fill(&mut nonce)?;
-                        nonce
-                    };
+    println!("Sending proposal (curve, cipher, hash): {:?}", (my_proposal.get_exchanges(), my_proposal.get_ciphers(), my_proposal.get_hashes()));
 
-                    self.my_proposal = {
-                        let mut proposal = Propose::new();
-                        proposal.set_rand(self.my_nonce.as_ref().to_owned());
-                        proposal.set_pubkey(self.my_id.pub_key().to_protobuf()?);
-                        proposal.set_exchanges(CurveAlgorithm::all()[0].to_string());
-                        proposal.set_ciphers(CipherAlgorithm::all()[0].to_string());
-                        proposal.set_hashes(HashAlgorithm::all()[0].to_string());
-                        proposal
-                    };
+    let my_proposal_bytes = Bytes::from(my_proposal.write_to_bytes().map_err(pbetio)?);
 
-                    println!("Sending proposal (curve, cipher, hash): {:?}", (self.my_proposal.get_exchanges(), self.my_proposal.get_ciphers(), self.my_proposal.get_hashes()));
+    let transport = await!(transport.send(my_proposal_bytes.clone()))?;
 
-                    self.my_proposal_bytes = Bytes::from(self.my_proposal.write_to_bytes().map_err(pbetio)?);
-                    self.step = Step::SendProposal(self.my_proposal_bytes.clone());
-                }
+    let (their_proposal_bytes, transport) = await!(transport.into_future().map_err(|(err, _)| err))?;
+    let their_proposal_bytes = match their_proposal_bytes {
+        Some(bytes) => bytes,
+        None => {
+            return Err(io::Error::new(io::ErrorKind::Other, "Unexpected EOF"));
+        }
+    };
 
-                Step::SendProposal(bytes) => {
-                    match self.transport.as_mut().unwrap().start_send(bytes)? {
-                        AsyncSink::Ready => {
-                            self.step = Step::SendingProposal;
-                        }
-                        AsyncSink::NotReady(bytes) => {
-                            self.step = Step::SendProposal(bytes);
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
+    let mut their_proposal: Propose = parse_from_bytes(&their_proposal_bytes).map_err(pbetio)?;
+    println!("Received proposal (curve, cipher, hash): {:?}", (their_proposal.get_exchanges(), their_proposal.get_ciphers(), their_proposal.get_hashes()));
 
-                Step::SendingProposal => {
-                    match self.transport.as_mut().unwrap().poll_complete()? {
-                        Async::Ready(()) => {
-                            self.step = Step::ReceivingProposal;
-                        }
-                        Async::NotReady => {
-                            self.step = Step::SendingProposal;
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::ReceivingProposal => {
-                    match self.transport.as_mut().unwrap().poll()? {
-                        Async::Ready(Some(bytes)) => {
-                            self.their_proposal_bytes = bytes;
-                            self.step = Step::ProcessingProposal;
-                        }
-                        Async::Ready(None) => {
-                            return Err(io::Error::new(io::ErrorKind::Other, "Unexpected EOF"));
-                        }
-                        Async::NotReady => {
-                            self.step = Step::ReceivingProposal;
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::ProcessingProposal => {
-                    self.their_proposal = parse_from_bytes(&self.their_proposal_bytes).map_err(pbetio)?;
-                    println!("Received proposal (curve, cipher, hash): {:?}", (self.their_proposal.get_exchanges(), self.their_proposal.get_ciphers(), self.their_proposal.get_hashes()));
-                    // // step 1.1 Identify -- get identity from their key
-                    self.their_id = {
-                        let actual_id = PeerId::from_protobuf(&self.their_proposal.get_pubkey())?;
-                        if let PeerId::Unknown = self.their_id { /* ok */ } else {
-                            if !actual_id.matches(&self.their_id) {
-                                return Err(io::Error::new(io::ErrorKind::Other, format!("public key from actual peer {:?} didn't match provided id {:?}", actual_id, self.their_id)));
-                            }
-                        }
-                        actual_id
-                    };
-                    println!("identified peer as: {:?}", self.their_id);
-
-                    self.order = {
-                        let order1 = MultiHash::generate_sha2_256(&Bytes::from(Vec::from_iter(self.their_proposal.get_pubkey().iter().chain(self.my_nonce.iter()).cloned())));
-                        let order2 = MultiHash::generate_sha2_256(&Bytes::from(Vec::from_iter(self.my_proposal.get_pubkey().iter().chain(self.their_proposal.get_rand()).cloned())));
-                        order1.to_bytes().cmp(&order2.to_bytes())
-                    };
-
-                    if self.order == Ordering::Equal {
-                        return Err(io::Error::new(io::ErrorKind::Other, "talking to self (same socket. must be reuseport + dialing self)"));
-                    }
-
-                    // step 1.2 Selection -- select/agree on best encryption parameters
-                    let (curve, cipher, hash) = select(&self.their_proposal, self.order)?;
-                    println!("Selected (curve, cipher, hash): {:?}", (curve, cipher, hash));
-                    self.curve = curve;
-                    self.cipher = cipher;
-                    self.hash = hash;
-
-                    // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
-                    self.my_ephemeral_priv_key = Some(curve.generate_priv_key()?);
-                    let my_ephemeral_pub_key = self.my_ephemeral_priv_key.as_mut().unwrap().pub_key()?;
-
-                    // Gather corpus to sign.
-                    let my_corpus = {
-                        let mut corpus = BytesMut::new();
-                        corpus.extend_from_slice(&self.my_proposal_bytes);
-                        corpus.extend_from_slice(&self.their_proposal_bytes);
-                        corpus.extend_from_slice(my_ephemeral_pub_key);
-                        corpus.freeze()
-                    };
-
-                    let my_exchange = {
-                        let mut exchange = Exchange::new();
-                        exchange.set_epubkey(my_ephemeral_pub_key.to_owned());
-                        exchange.set_signature(self.my_id.sign(&my_corpus)?);
-                        exchange
-                    };
-
-                    println!("Sending exchange");
-                    self.step = Step::SendExchange(Bytes::from(my_exchange.write_to_bytes().map_err(pbetio)?));
-                }
-
-                Step::SendExchange(bytes) => {
-                    match self.transport.as_mut().unwrap().start_send(bytes)? {
-                        AsyncSink::Ready => {
-                            self.step = Step::SendingExchange;
-                        }
-                        AsyncSink::NotReady(bytes) => {
-                            self.step = Step::SendExchange(bytes);
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::SendingExchange => {
-                    match self.transport.as_mut().unwrap().poll_complete()? {
-                        Async::Ready(()) => {
-                            self.step = Step::ReceivingExchange;
-                        }
-                        Async::NotReady => {
-                            self.step = Step::SendingExchange;
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::ReceivingExchange => {
-                    match self.transport.as_mut().unwrap().poll()? {
-                        Async::Ready(Some(bytes)) => {
-                            self.step = Step::ProcessingExchange(bytes);
-                        }
-                        Async::Ready(None) => {
-                            return Err(io::Error::new(io::ErrorKind::Other, "Unexpected EOF"));
-                        }
-                        Async::NotReady => {
-                            self.step = Step::ReceivingExchange;
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::ProcessingExchange(bytes) => {
-                    let their_exchange: Exchange = parse_from_bytes(&bytes).map_err(pbetio)?;
-                    println!("Received exchange");
-                    // TODO: This is the wrong format, need to add X9.62 §4.36 unmarshalling to
-                    // ring for compatibility with the Go implementation
-                    let their_ephemeral_pub_key = their_exchange.get_epubkey();
-
-                    // step 2.1. Verify -- verify their exchange packet is good.
-                    let their_corpus = {
-                        let mut corpus = BytesMut::new();
-                        corpus.extend_from_slice(&self.their_proposal_bytes);
-                        corpus.extend_from_slice(&self.my_proposal_bytes);
-                        corpus.extend_from_slice(&their_ephemeral_pub_key);
-                        corpus
-                    };
-
-                    try!(self.their_id.verify(&their_corpus, their_exchange.get_signature()));
-                    println!("Verified exchange");
-
-                    // step 2.2. Keys -- generate keys for mac + encryption
-                    let algos = self.my_ephemeral_priv_key.take().unwrap().agree_with(their_ephemeral_pub_key, self.hash, self.cipher, self.order == Ordering::Less)?;
-
-                    // step 3. Finish -- send expected message to verify encryption works (send local nonce)
-                    let parts = self.transport.take().unwrap().into_parts();
-                    let secstream = SecStream::new(parts, algos);
-                    let nonce = self.their_proposal.take_rand();
-                    let sending = write_all(secstream, nonce);
-                    self.step = Step::SendingNonce(sending);
-                }
-
-                Step::SendingNonce(mut sending) => {
-                    match sending.poll()? {
-                        Async::Ready((secstream, _)) => {
-                            let flushing = flush(secstream);
-                            self.step = Step::FlushingNonce(flushing);
-                        }
-                        Async::NotReady => {
-                            self.step = Step::SendingNonce(sending);
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::FlushingNonce(mut flushing) => {
-                    match flushing.poll()? {
-                        Async::Ready(secstream) => {
-                            let bytes = [0; NONCE_SIZE];
-                            let receiving = read_exact(secstream, bytes);
-                            self.step = Step::ReceivingNonce(receiving);
-                        }
-                        Async::NotReady => {
-                            self.step = Step::FlushingNonce(flushing);
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::ReceivingNonce(mut receiving) => {
-                    match receiving.poll()? {
-                        Async::Ready((secstream, bytes)) => {
-                            if self.my_nonce[..] != bytes[..] {
-                                println!("my nonce {:?}, they gave {:?}", self.my_nonce, bytes);
-                                return Err(io::Error::new(io::ErrorKind::Other, "Nonces did not match"));
-                            }
-
-                            return Ok(Async::Ready((self.their_id.clone(), secstream)));
-                        }
-                        Async::NotReady => {
-                            self.step = Step::ReceivingNonce(receiving);
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                }
-
-                Step::Invalid => {
-                    panic!("Should not be reachable");
-                }
+    // // step 1.1 Identify -- get identity from their key
+    let peer = {
+        let actual_id = PeerId::from_protobuf(&their_proposal.get_pubkey())?;
+        if let PeerId::Unknown = peer { /* ok */ } else {
+            if !actual_id.matches(&peer) {
+                return Err(io::Error::new(io::ErrorKind::Other, format!("public key from actual peer {:?} didn't match provided id {:?}", actual_id, peer)));
             }
         }
+        actual_id
+    };
+    println!("identified peer as: {:?}", peer);
+
+    let order = {
+        let order1 = MultiHash::generate_sha2_256(&Bytes::from(Vec::from_iter(their_proposal.get_pubkey().iter().chain(my_nonce.iter()).cloned())));
+        let order2 = MultiHash::generate_sha2_256(&Bytes::from(Vec::from_iter(my_proposal.get_pubkey().iter().chain(their_proposal.get_rand()).cloned())));
+        order1.to_bytes().cmp(&order2.to_bytes())
+    };
+
+    if order == Ordering::Equal {
+        return Err(io::Error::new(io::ErrorKind::Other, "talking to self (same socket. must be reuseport + dialing self)"));
     }
+
+    // step 1.2 Selection -- select/agree on best encryption parameters
+    let (curve, cipher, hash) = select(&their_proposal, order)?;
+    println!("Selected (curve, cipher, hash): {:?}", (curve, cipher, hash));
+
+    // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
+    let mut my_ephemeral_priv_key = curve.generate_priv_key()?;
+
+    // Gather corpus to sign.
+    let my_corpus = {
+        let mut corpus = BytesMut::new();
+        corpus.extend_from_slice(&my_proposal_bytes);
+        corpus.extend_from_slice(&their_proposal_bytes);
+        corpus.extend_from_slice(my_ephemeral_priv_key.pub_key()?);
+        corpus.freeze()
+    };
+
+    let my_exchange = {
+        let mut exchange = Exchange::new();
+        exchange.set_epubkey(my_ephemeral_priv_key.pub_key()?.to_owned());
+        exchange.set_signature(host.sign(&my_corpus)?);
+        exchange
+    };
+
+    println!("Sending exchange");
+    let my_exchange_bytes = Bytes::from(my_exchange.write_to_bytes().map_err(pbetio)?);
+
+    let transport = await!(transport.send(my_exchange_bytes))?;
+
+    let (their_exchange_bytes, transport) = await!(transport.into_future().map_err(|(err, _)| err))?;
+    let their_exchange_bytes = match their_exchange_bytes {
+        Some(bytes) => bytes,
+        None => {
+            return Err(io::Error::new(io::ErrorKind::Other, "Unexpected EOF"));
+        }
+    };
+
+    let their_exchange: Exchange = parse_from_bytes(&their_exchange_bytes).map_err(pbetio)?;
+    println!("Received exchange");
+
+    // step 2.1. Verify -- verify their exchange packet is good.
+    let their_corpus = {
+        let mut corpus = BytesMut::new();
+        corpus.extend_from_slice(&their_proposal_bytes);
+        corpus.extend_from_slice(&my_proposal_bytes);
+        corpus.extend_from_slice(&their_exchange.get_epubkey());
+        corpus
+    };
+
+    try!(peer.verify(&their_corpus, their_exchange.get_signature()));
+    println!("Verified exchange");
+
+    // step 2.2. Keys -- generate keys for mac + encryption
+    let algos = my_ephemeral_priv_key.agree_with(their_exchange.get_epubkey(), hash, cipher, order == Ordering::Less)?;
+
+    // step 3. Finish -- send expected message to verify encryption works (send local nonce)
+    let parts = transport.into_parts();
+    let secstream = SecStream::new(parts, algos);
+    let nonce = their_proposal.take_rand();
+    let (secstream, _) = await!(write_all(secstream, nonce))?;
+    let secstream = await!(flush(secstream))?;
+    let (secstream, bytes) = await!(read_exact(secstream, [0; NONCE_SIZE]))?;
+    if my_nonce[..] != bytes[..] {
+        println!("my nonce {:?}, they gave {:?}", my_nonce, bytes);
+        return Err(io::Error::new(io::ErrorKind::Other, "Nonces did not match"));
+    }
+
+    return Ok((peer.clone(), secstream));
 }
