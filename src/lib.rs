@@ -13,16 +13,5 @@ mod data;
 mod handshake;
 mod secstream;
 
-use std::io;
-
-use futures::Future;
-use identity::{ HostId, PeerId };
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{FramedParts};
-
-use handshake::Handshake;
+pub use handshake::handshake;
 pub use secstream::SecStream;
-
-pub fn handshake<S: AsyncRead + AsyncWrite>(transport: FramedParts<S>, host: HostId, peer: PeerId) -> impl Future<Item=(PeerId, SecStream<S>), Error=io::Error> {
-    Handshake::new(transport, host, peer)
-}

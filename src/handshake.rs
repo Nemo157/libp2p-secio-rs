@@ -35,7 +35,7 @@ enum Step<S: AsyncRead + AsyncWrite> {
     Invalid,
 }
 
-pub struct Handshake<S: AsyncRead + AsyncWrite> {
+struct Handshake<S: AsyncRead + AsyncWrite> {
     transport: Option<Framed<S, LengthPrefixed>>,
     my_id: HostId,
     their_id: PeerId,
@@ -76,25 +76,23 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, C
     Ok((CurveAlgorithm::all()[0], CipherAlgorithm::all()[0], HashAlgorithm::all()[0])) // TODO: Return actual (exchange,cipher,hash)
 }
 
-impl<S: AsyncRead + AsyncWrite> Handshake<S> {
-    pub(crate) fn new(transport: FramedParts<S>, my_id: HostId, their_id: PeerId) -> Handshake<S> {
-        Handshake {
-            transport: Some(Framed::from_parts(transport, msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None))),
-            my_id: my_id,
-            their_id: their_id,
-            step: Step::Propose,
+pub fn handshake<S: AsyncRead + AsyncWrite>(transport: FramedParts<S>, host: HostId, peer: PeerId) -> impl Future<Item=(PeerId, SecStream<S>), Error=io::Error> {
+    Handshake {
+        transport: Some(Framed::from_parts(transport, msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None))),
+        my_id: host,
+        their_id: peer,
+        step: Step::Propose,
 
-            curve: CurveAlgorithm::all()[0],
-            cipher: CipherAlgorithm::all()[0],
-            hash: HashAlgorithm::all()[0],
-            order: Ordering::Equal,
-            my_nonce: [0; NONCE_SIZE],
-            my_proposal_bytes: Bytes::new(),
-            their_proposal_bytes: Bytes::new(),
-            my_ephemeral_priv_key: None,
-            their_proposal: Propose::new(),
-            my_proposal: Propose::new(),
-        }
+        curve: CurveAlgorithm::all()[0],
+        cipher: CipherAlgorithm::all()[0],
+        hash: HashAlgorithm::all()[0],
+        order: Ordering::Equal,
+        my_nonce: [0; NONCE_SIZE],
+        my_proposal_bytes: Bytes::new(),
+        their_proposal_bytes: Bytes::new(),
+        my_ephemeral_priv_key: None,
+        their_proposal: Propose::new(),
+        my_proposal: Propose::new(),
     }
 }
 
