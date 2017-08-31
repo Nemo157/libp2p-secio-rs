@@ -21,12 +21,7 @@ use data::{ Propose, Exchange };
 const NONCE_SIZE: usize = 16;
 
 fn pbetio(e: ProtobufError) -> io::Error {
-    match e {
-        ProtobufError::IoError(e) => e,
-        ProtobufError::WireError(m) => io::Error::new(io::ErrorKind::Other, m),
-        ProtobufError::MessageNotInitialized { message: m } =>
-            io::Error::new(io::ErrorKind::Other, m),
-    }
+    io::Error::new(io::ErrorKind::Other, e)
 }
 
 fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, CipherAlgorithm, HashAlgorithm)> {

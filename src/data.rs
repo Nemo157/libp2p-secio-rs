@@ -9,6 +9,7 @@
 
 #![allow(box_pointers)]
 #![allow(dead_code)]
+#![allow(missing_docs)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
@@ -20,7 +21,7 @@
 use protobuf::Message as Message_imported_for_functions;
 use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 
-#[derive(Clone,Default)]
+#[derive(PartialEq,Clone,Default)]
 pub struct Propose {
     // message fields
     rand: ::protobuf::SingularField<::std::vec::Vec<u8>>,
@@ -30,7 +31,7 @@ pub struct Propose {
     hashes: ::protobuf::SingularField<::std::string::String>,
     // special fields
     unknown_fields: ::protobuf::UnknownFields,
-    cached_size: ::std::cell::Cell<u32>,
+    cached_size: ::protobuf::CachedSize,
 }
 
 // see codegen.rs for the explanation why impl Sync explicitly
@@ -47,17 +48,7 @@ impl Propose {
             ptr: 0 as *const Propose,
         };
         unsafe {
-            instance.get(|| {
-                Propose {
-                    rand: ::protobuf::SingularField::none(),
-                    pubkey: ::protobuf::SingularField::none(),
-                    exchanges: ::protobuf::SingularField::none(),
-                    ciphers: ::protobuf::SingularField::none(),
-                    hashes: ::protobuf::SingularField::none(),
-                    unknown_fields: ::protobuf::UnknownFields::new(),
-                    cached_size: ::std::cell::Cell::new(0),
-                }
-            })
+            instance.get(Propose::new)
         }
     }
 
@@ -81,7 +72,7 @@ impl Propose {
     pub fn mut_rand(&mut self) -> &mut ::std::vec::Vec<u8> {
         if self.rand.is_none() {
             self.rand.set_default();
-        };
+        }
         self.rand.as_mut().unwrap()
     }
 
@@ -95,6 +86,14 @@ impl Propose {
             Some(v) => &v,
             None => &[],
         }
+    }
+
+    fn get_rand_for_reflect(&self) -> &::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &self.rand
+    }
+
+    fn mut_rand_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &mut self.rand
     }
 
     // optional bytes pubkey = 2;
@@ -117,7 +116,7 @@ impl Propose {
     pub fn mut_pubkey(&mut self) -> &mut ::std::vec::Vec<u8> {
         if self.pubkey.is_none() {
             self.pubkey.set_default();
-        };
+        }
         self.pubkey.as_mut().unwrap()
     }
 
@@ -131,6 +130,14 @@ impl Propose {
             Some(v) => &v,
             None => &[],
         }
+    }
+
+    fn get_pubkey_for_reflect(&self) -> &::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &self.pubkey
+    }
+
+    fn mut_pubkey_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &mut self.pubkey
     }
 
     // optional string exchanges = 3;
@@ -153,7 +160,7 @@ impl Propose {
     pub fn mut_exchanges(&mut self) -> &mut ::std::string::String {
         if self.exchanges.is_none() {
             self.exchanges.set_default();
-        };
+        }
         self.exchanges.as_mut().unwrap()
     }
 
@@ -167,6 +174,14 @@ impl Propose {
             Some(v) => &v,
             None => "",
         }
+    }
+
+    fn get_exchanges_for_reflect(&self) -> &::protobuf::SingularField<::std::string::String> {
+        &self.exchanges
+    }
+
+    fn mut_exchanges_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::string::String> {
+        &mut self.exchanges
     }
 
     // optional string ciphers = 4;
@@ -189,7 +204,7 @@ impl Propose {
     pub fn mut_ciphers(&mut self) -> &mut ::std::string::String {
         if self.ciphers.is_none() {
             self.ciphers.set_default();
-        };
+        }
         self.ciphers.as_mut().unwrap()
     }
 
@@ -203,6 +218,14 @@ impl Propose {
             Some(v) => &v,
             None => "",
         }
+    }
+
+    fn get_ciphers_for_reflect(&self) -> &::protobuf::SingularField<::std::string::String> {
+        &self.ciphers
+    }
+
+    fn mut_ciphers_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::string::String> {
+        &mut self.ciphers
     }
 
     // optional string hashes = 5;
@@ -225,7 +248,7 @@ impl Propose {
     pub fn mut_hashes(&mut self) -> &mut ::std::string::String {
         if self.hashes.is_none() {
             self.hashes.set_default();
-        };
+        }
         self.hashes.as_mut().unwrap()
     }
 
@@ -240,6 +263,14 @@ impl Propose {
             None => "",
         }
     }
+
+    fn get_hashes_for_reflect(&self) -> &::protobuf::SingularField<::std::string::String> {
+        &self.hashes
+    }
+
+    fn mut_hashes_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::string::String> {
+        &mut self.hashes
+    }
 }
 
 impl ::protobuf::Message for Propose {
@@ -248,26 +279,26 @@ impl ::protobuf::Message for Propose {
     }
 
     fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
-        while !try!(is.eof()) {
-            let (field_number, wire_type) = try!(is.read_tag_unpack());
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    try!(::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.rand));
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.rand)?;
                 },
                 2 => {
-                    try!(::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.pubkey));
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.pubkey)?;
                 },
                 3 => {
-                    try!(::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.exchanges));
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.exchanges)?;
                 },
                 4 => {
-                    try!(::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.ciphers));
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.ciphers)?;
                 },
                 5 => {
-                    try!(::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.hashes));
+                    ::protobuf::rt::read_singular_string_into(wire_type, is, &mut self.hashes)?;
                 },
                 _ => {
-                    try!(::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields()));
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
             };
         }
@@ -278,43 +309,43 @@ impl ::protobuf::Message for Propose {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        for value in self.rand.iter() {
-            my_size += ::protobuf::rt::bytes_size(1, &value);
-        };
-        for value in self.pubkey.iter() {
-            my_size += ::protobuf::rt::bytes_size(2, &value);
-        };
-        for value in self.exchanges.iter() {
-            my_size += ::protobuf::rt::string_size(3, &value);
-        };
-        for value in self.ciphers.iter() {
-            my_size += ::protobuf::rt::string_size(4, &value);
-        };
-        for value in self.hashes.iter() {
-            my_size += ::protobuf::rt::string_size(5, &value);
-        };
+        if let Some(ref v) = self.rand.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        if let Some(ref v) = self.pubkey.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(2, &v);
+        }
+        if let Some(ref v) = self.exchanges.as_ref() {
+            my_size += ::protobuf::rt::string_size(3, &v);
+        }
+        if let Some(ref v) = self.ciphers.as_ref() {
+            my_size += ::protobuf::rt::string_size(4, &v);
+        }
+        if let Some(ref v) = self.hashes.as_ref() {
+            my_size += ::protobuf::rt::string_size(5, &v);
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(v) = self.rand.as_ref() {
-            try!(os.write_bytes(1, &v));
-        };
-        if let Some(v) = self.pubkey.as_ref() {
-            try!(os.write_bytes(2, &v));
-        };
-        if let Some(v) = self.exchanges.as_ref() {
-            try!(os.write_string(3, &v));
-        };
-        if let Some(v) = self.ciphers.as_ref() {
-            try!(os.write_string(4, &v));
-        };
-        if let Some(v) = self.hashes.as_ref() {
-            try!(os.write_string(5, &v));
-        };
-        try!(os.write_unknown_fields(self.get_unknown_fields()));
+        if let Some(ref v) = self.rand.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        if let Some(ref v) = self.pubkey.as_ref() {
+            os.write_bytes(2, &v)?;
+        }
+        if let Some(ref v) = self.exchanges.as_ref() {
+            os.write_string(3, &v)?;
+        }
+        if let Some(ref v) = self.ciphers.as_ref() {
+            os.write_string(4, &v)?;
+        }
+        if let Some(ref v) = self.hashes.as_ref() {
+            os.write_string(5, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
     }
 
@@ -330,12 +361,14 @@ impl ::protobuf::Message for Propose {
         &mut self.unknown_fields
     }
 
-    fn type_id(&self) -> ::std::any::TypeId {
-        ::std::any::TypeId::of::<Propose>()
-    }
-
     fn as_any(&self) -> &::std::any::Any {
         self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
     }
 
     fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
@@ -356,30 +389,30 @@ impl ::protobuf::MessageStatic for Propose {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_singular_bytes_accessor(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "rand",
-                    Propose::has_rand,
-                    Propose::get_rand,
+                    Propose::get_rand_for_reflect,
+                    Propose::mut_rand_for_reflect,
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_bytes_accessor(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "pubkey",
-                    Propose::has_pubkey,
-                    Propose::get_pubkey,
+                    Propose::get_pubkey_for_reflect,
+                    Propose::mut_pubkey_for_reflect,
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_string_accessor(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "exchanges",
-                    Propose::has_exchanges,
-                    Propose::get_exchanges,
+                    Propose::get_exchanges_for_reflect,
+                    Propose::mut_exchanges_for_reflect,
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_string_accessor(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "ciphers",
-                    Propose::has_ciphers,
-                    Propose::get_ciphers,
+                    Propose::get_ciphers_for_reflect,
+                    Propose::mut_ciphers_for_reflect,
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_string_accessor(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
                     "hashes",
-                    Propose::has_hashes,
-                    Propose::get_hashes,
+                    Propose::get_hashes_for_reflect,
+                    Propose::mut_hashes_for_reflect,
                 ));
                 ::protobuf::reflect::MessageDescriptor::new::<Propose>(
                     "Propose",
@@ -402,31 +435,26 @@ impl ::protobuf::Clear for Propose {
     }
 }
 
-impl ::std::cmp::PartialEq for Propose {
-    fn eq(&self, other: &Propose) -> bool {
-        self.rand == other.rand &&
-        self.pubkey == other.pubkey &&
-        self.exchanges == other.exchanges &&
-        self.ciphers == other.ciphers &&
-        self.hashes == other.hashes &&
-        self.unknown_fields == other.unknown_fields
-    }
-}
-
 impl ::std::fmt::Debug for Propose {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
-#[derive(Clone,Default)]
+impl ::protobuf::reflect::ProtobufValue for Propose {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
 pub struct Exchange {
     // message fields
     epubkey: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     signature: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
     unknown_fields: ::protobuf::UnknownFields,
-    cached_size: ::std::cell::Cell<u32>,
+    cached_size: ::protobuf::CachedSize,
 }
 
 // see codegen.rs for the explanation why impl Sync explicitly
@@ -443,14 +471,7 @@ impl Exchange {
             ptr: 0 as *const Exchange,
         };
         unsafe {
-            instance.get(|| {
-                Exchange {
-                    epubkey: ::protobuf::SingularField::none(),
-                    signature: ::protobuf::SingularField::none(),
-                    unknown_fields: ::protobuf::UnknownFields::new(),
-                    cached_size: ::std::cell::Cell::new(0),
-                }
-            })
+            instance.get(Exchange::new)
         }
     }
 
@@ -474,7 +495,7 @@ impl Exchange {
     pub fn mut_epubkey(&mut self) -> &mut ::std::vec::Vec<u8> {
         if self.epubkey.is_none() {
             self.epubkey.set_default();
-        };
+        }
         self.epubkey.as_mut().unwrap()
     }
 
@@ -488,6 +509,14 @@ impl Exchange {
             Some(v) => &v,
             None => &[],
         }
+    }
+
+    fn get_epubkey_for_reflect(&self) -> &::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &self.epubkey
+    }
+
+    fn mut_epubkey_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &mut self.epubkey
     }
 
     // optional bytes signature = 2;
@@ -510,7 +539,7 @@ impl Exchange {
     pub fn mut_signature(&mut self) -> &mut ::std::vec::Vec<u8> {
         if self.signature.is_none() {
             self.signature.set_default();
-        };
+        }
         self.signature.as_mut().unwrap()
     }
 
@@ -525,6 +554,14 @@ impl Exchange {
             None => &[],
         }
     }
+
+    fn get_signature_for_reflect(&self) -> &::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &self.signature
+    }
+
+    fn mut_signature_for_reflect(&mut self) -> &mut ::protobuf::SingularField<::std::vec::Vec<u8>> {
+        &mut self.signature
+    }
 }
 
 impl ::protobuf::Message for Exchange {
@@ -533,17 +570,17 @@ impl ::protobuf::Message for Exchange {
     }
 
     fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
-        while !try!(is.eof()) {
-            let (field_number, wire_type) = try!(is.read_tag_unpack());
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    try!(::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.epubkey));
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.epubkey)?;
                 },
                 2 => {
-                    try!(::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.signature));
+                    ::protobuf::rt::read_singular_bytes_into(wire_type, is, &mut self.signature)?;
                 },
                 _ => {
-                    try!(::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields()));
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
                 },
             };
         }
@@ -554,25 +591,25 @@ impl ::protobuf::Message for Exchange {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        for value in self.epubkey.iter() {
-            my_size += ::protobuf::rt::bytes_size(1, &value);
-        };
-        for value in self.signature.iter() {
-            my_size += ::protobuf::rt::bytes_size(2, &value);
-        };
+        if let Some(ref v) = self.epubkey.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(1, &v);
+        }
+        if let Some(ref v) = self.signature.as_ref() {
+            my_size += ::protobuf::rt::bytes_size(2, &v);
+        }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
         my_size
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(v) = self.epubkey.as_ref() {
-            try!(os.write_bytes(1, &v));
-        };
-        if let Some(v) = self.signature.as_ref() {
-            try!(os.write_bytes(2, &v));
-        };
-        try!(os.write_unknown_fields(self.get_unknown_fields()));
+        if let Some(ref v) = self.epubkey.as_ref() {
+            os.write_bytes(1, &v)?;
+        }
+        if let Some(ref v) = self.signature.as_ref() {
+            os.write_bytes(2, &v)?;
+        }
+        os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
     }
 
@@ -588,12 +625,14 @@ impl ::protobuf::Message for Exchange {
         &mut self.unknown_fields
     }
 
-    fn type_id(&self) -> ::std::any::TypeId {
-        ::std::any::TypeId::of::<Exchange>()
-    }
-
     fn as_any(&self) -> &::std::any::Any {
         self as &::std::any::Any
+    }
+    fn as_any_mut(&mut self) -> &mut ::std::any::Any {
+        self as &mut ::std::any::Any
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<::std::any::Any> {
+        self
     }
 
     fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
@@ -614,15 +653,15 @@ impl ::protobuf::MessageStatic for Exchange {
         unsafe {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_singular_bytes_accessor(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "epubkey",
-                    Exchange::has_epubkey,
-                    Exchange::get_epubkey,
+                    Exchange::get_epubkey_for_reflect,
+                    Exchange::mut_epubkey_for_reflect,
                 ));
-                fields.push(::protobuf::reflect::accessor::make_singular_bytes_accessor(
+                fields.push(::protobuf::reflect::accessor::make_singular_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
                     "signature",
-                    Exchange::has_signature,
-                    Exchange::get_signature,
+                    Exchange::get_signature_for_reflect,
+                    Exchange::mut_signature_for_reflect,
                 ));
                 ::protobuf::reflect::MessageDescriptor::new::<Exchange>(
                     "Exchange",
@@ -642,67 +681,54 @@ impl ::protobuf::Clear for Exchange {
     }
 }
 
-impl ::std::cmp::PartialEq for Exchange {
-    fn eq(&self, other: &Exchange) -> bool {
-        self.epubkey == other.epubkey &&
-        self.signature == other.signature &&
-        self.unknown_fields == other.unknown_fields
-    }
-}
-
 impl ::std::fmt::Debug for Exchange {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
-static file_descriptor_proto_data: &'static [u8] = &[
-    0x0a, 0x0b, 0x73, 0x70, 0x69, 0x70, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x08, 0x73,
-    0x70, 0x69, 0x70, 0x65, 0x2e, 0x70, 0x62, 0x22, 0x5b, 0x0a, 0x07, 0x50, 0x72, 0x6f, 0x70, 0x6f,
-    0x73, 0x65, 0x12, 0x0c, 0x0a, 0x04, 0x72, 0x61, 0x6e, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c,
-    0x12, 0x0e, 0x0a, 0x06, 0x70, 0x75, 0x62, 0x6b, 0x65, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c,
-    0x12, 0x11, 0x0a, 0x09, 0x65, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x73, 0x18, 0x03, 0x20,
-    0x01, 0x28, 0x09, 0x12, 0x0f, 0x0a, 0x07, 0x63, 0x69, 0x70, 0x68, 0x65, 0x72, 0x73, 0x18, 0x04,
-    0x20, 0x01, 0x28, 0x09, 0x12, 0x0e, 0x0a, 0x06, 0x68, 0x61, 0x73, 0x68, 0x65, 0x73, 0x18, 0x05,
-    0x20, 0x01, 0x28, 0x09, 0x22, 0x2e, 0x0a, 0x08, 0x45, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65,
-    0x12, 0x0f, 0x0a, 0x07, 0x65, 0x70, 0x75, 0x62, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28,
-    0x0c, 0x12, 0x11, 0x0a, 0x09, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x02,
-    0x20, 0x01, 0x28, 0x0c, 0x4a, 0xa5, 0x04, 0x0a, 0x06, 0x12, 0x04, 0x00, 0x00, 0x0d, 0x01, 0x0a,
-    0x08, 0x0a, 0x01, 0x02, 0x12, 0x03, 0x00, 0x08, 0x10, 0x0a, 0x0a, 0x0a, 0x02, 0x04, 0x00, 0x12,
-    0x04, 0x02, 0x00, 0x08, 0x01, 0x0a, 0x0a, 0x0a, 0x03, 0x04, 0x00, 0x01, 0x12, 0x03, 0x02, 0x08,
-    0x0f, 0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x00, 0x02, 0x00, 0x12, 0x03, 0x03, 0x02, 0x1a, 0x0a, 0x0c,
-    0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x04, 0x12, 0x03, 0x03, 0x02, 0x0a, 0x0a, 0x0c, 0x0a, 0x05,
-    0x04, 0x00, 0x02, 0x00, 0x05, 0x12, 0x03, 0x03, 0x0b, 0x10, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00,
-    0x02, 0x00, 0x01, 0x12, 0x03, 0x03, 0x11, 0x15, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00,
-    0x03, 0x12, 0x03, 0x03, 0x18, 0x19, 0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x00, 0x02, 0x01, 0x12, 0x03,
-    0x04, 0x02, 0x1c, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x01, 0x04, 0x12, 0x03, 0x04, 0x02,
-    0x0a, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x01, 0x05, 0x12, 0x03, 0x04, 0x0b, 0x10, 0x0a,
-    0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x01, 0x01, 0x12, 0x03, 0x04, 0x11, 0x17, 0x0a, 0x0c, 0x0a,
-    0x05, 0x04, 0x00, 0x02, 0x01, 0x03, 0x12, 0x03, 0x04, 0x1a, 0x1b, 0x0a, 0x0b, 0x0a, 0x04, 0x04,
-    0x00, 0x02, 0x02, 0x12, 0x03, 0x05, 0x02, 0x20, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x02,
-    0x04, 0x12, 0x03, 0x05, 0x02, 0x0a, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x02, 0x05, 0x12,
-    0x03, 0x05, 0x0b, 0x11, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x02, 0x01, 0x12, 0x03, 0x05,
-    0x12, 0x1b, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x02, 0x03, 0x12, 0x03, 0x05, 0x1e, 0x1f,
-    0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x00, 0x02, 0x03, 0x12, 0x03, 0x06, 0x02, 0x1e, 0x0a, 0x0c, 0x0a,
-    0x05, 0x04, 0x00, 0x02, 0x03, 0x04, 0x12, 0x03, 0x06, 0x02, 0x0a, 0x0a, 0x0c, 0x0a, 0x05, 0x04,
-    0x00, 0x02, 0x03, 0x05, 0x12, 0x03, 0x06, 0x0b, 0x11, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02,
-    0x03, 0x01, 0x12, 0x03, 0x06, 0x12, 0x19, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x03, 0x03,
-    0x12, 0x03, 0x06, 0x1c, 0x1d, 0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x00, 0x02, 0x04, 0x12, 0x03, 0x07,
-    0x02, 0x1d, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x04, 0x04, 0x12, 0x03, 0x07, 0x02, 0x0a,
-    0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x04, 0x05, 0x12, 0x03, 0x07, 0x0b, 0x11, 0x0a, 0x0c,
-    0x0a, 0x05, 0x04, 0x00, 0x02, 0x04, 0x01, 0x12, 0x03, 0x07, 0x12, 0x18, 0x0a, 0x0c, 0x0a, 0x05,
-    0x04, 0x00, 0x02, 0x04, 0x03, 0x12, 0x03, 0x07, 0x1b, 0x1c, 0x0a, 0x0a, 0x0a, 0x02, 0x04, 0x01,
-    0x12, 0x04, 0x0a, 0x00, 0x0d, 0x01, 0x0a, 0x0a, 0x0a, 0x03, 0x04, 0x01, 0x01, 0x12, 0x03, 0x0a,
-    0x08, 0x10, 0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x01, 0x02, 0x00, 0x12, 0x03, 0x0b, 0x02, 0x1d, 0x0a,
-    0x0c, 0x0a, 0x05, 0x04, 0x01, 0x02, 0x00, 0x04, 0x12, 0x03, 0x0b, 0x02, 0x0a, 0x0a, 0x0c, 0x0a,
-    0x05, 0x04, 0x01, 0x02, 0x00, 0x05, 0x12, 0x03, 0x0b, 0x0b, 0x10, 0x0a, 0x0c, 0x0a, 0x05, 0x04,
-    0x01, 0x02, 0x00, 0x01, 0x12, 0x03, 0x0b, 0x11, 0x18, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x01, 0x02,
-    0x00, 0x03, 0x12, 0x03, 0x0b, 0x1b, 0x1c, 0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x01, 0x02, 0x01, 0x12,
-    0x03, 0x0c, 0x02, 0x1f, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x01, 0x02, 0x01, 0x04, 0x12, 0x03, 0x0c,
-    0x02, 0x0a, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x01, 0x02, 0x01, 0x05, 0x12, 0x03, 0x0c, 0x0b, 0x10,
-    0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x01, 0x02, 0x01, 0x01, 0x12, 0x03, 0x0c, 0x11, 0x1a, 0x0a, 0x0c,
-    0x0a, 0x05, 0x04, 0x01, 0x02, 0x01, 0x03, 0x12, 0x03, 0x0c, 0x1d, 0x1e,
-];
+impl ::protobuf::reflect::ProtobufValue for Exchange {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+static file_descriptor_proto_data: &'static [u8] = b"\
+    \n\x0esrc/data.proto\x12\x08spipe.pb\"\x85\x01\n\x07Propose\x12\x12\n\
+    \x04rand\x18\x01\x20\x01(\x0cR\x04rand\x12\x16\n\x06pubkey\x18\x02\x20\
+    \x01(\x0cR\x06pubkey\x12\x1c\n\texchanges\x18\x03\x20\x01(\tR\texchanges\
+    \x12\x18\n\x07ciphers\x18\x04\x20\x01(\tR\x07ciphers\x12\x16\n\x06hashes\
+    \x18\x05\x20\x01(\tR\x06hashes\"B\n\x08Exchange\x12\x18\n\x07epubkey\x18\
+    \x01\x20\x01(\x0cR\x07epubkey\x12\x1c\n\tsignature\x18\x02\x20\x01(\x0cR\
+    \tsignatureJ\xa5\x04\n\x06\x12\x04\0\0\r\x01\n\x08\n\x01\x02\x12\x03\0\
+    \x08\x10\n\n\n\x02\x04\0\x12\x04\x02\0\x08\x01\n\n\n\x03\x04\0\x01\x12\
+    \x03\x02\x08\x0f\n\x0b\n\x04\x04\0\x02\0\x12\x03\x03\x02\x1a\n\x0c\n\x05\
+    \x04\0\x02\0\x04\x12\x03\x03\x02\n\n\x0c\n\x05\x04\0\x02\0\x05\x12\x03\
+    \x03\x0b\x10\n\x0c\n\x05\x04\0\x02\0\x01\x12\x03\x03\x11\x15\n\x0c\n\x05\
+    \x04\0\x02\0\x03\x12\x03\x03\x18\x19\n\x0b\n\x04\x04\0\x02\x01\x12\x03\
+    \x04\x02\x1c\n\x0c\n\x05\x04\0\x02\x01\x04\x12\x03\x04\x02\n\n\x0c\n\x05\
+    \x04\0\x02\x01\x05\x12\x03\x04\x0b\x10\n\x0c\n\x05\x04\0\x02\x01\x01\x12\
+    \x03\x04\x11\x17\n\x0c\n\x05\x04\0\x02\x01\x03\x12\x03\x04\x1a\x1b\n\x0b\
+    \n\x04\x04\0\x02\x02\x12\x03\x05\x02\x20\n\x0c\n\x05\x04\0\x02\x02\x04\
+    \x12\x03\x05\x02\n\n\x0c\n\x05\x04\0\x02\x02\x05\x12\x03\x05\x0b\x11\n\
+    \x0c\n\x05\x04\0\x02\x02\x01\x12\x03\x05\x12\x1b\n\x0c\n\x05\x04\0\x02\
+    \x02\x03\x12\x03\x05\x1e\x1f\n\x0b\n\x04\x04\0\x02\x03\x12\x03\x06\x02\
+    \x1e\n\x0c\n\x05\x04\0\x02\x03\x04\x12\x03\x06\x02\n\n\x0c\n\x05\x04\0\
+    \x02\x03\x05\x12\x03\x06\x0b\x11\n\x0c\n\x05\x04\0\x02\x03\x01\x12\x03\
+    \x06\x12\x19\n\x0c\n\x05\x04\0\x02\x03\x03\x12\x03\x06\x1c\x1d\n\x0b\n\
+    \x04\x04\0\x02\x04\x12\x03\x07\x02\x1d\n\x0c\n\x05\x04\0\x02\x04\x04\x12\
+    \x03\x07\x02\n\n\x0c\n\x05\x04\0\x02\x04\x05\x12\x03\x07\x0b\x11\n\x0c\n\
+    \x05\x04\0\x02\x04\x01\x12\x03\x07\x12\x18\n\x0c\n\x05\x04\0\x02\x04\x03\
+    \x12\x03\x07\x1b\x1c\n\n\n\x02\x04\x01\x12\x04\n\0\r\x01\n\n\n\x03\x04\
+    \x01\x01\x12\x03\n\x08\x10\n\x0b\n\x04\x04\x01\x02\0\x12\x03\x0b\x02\x1d\
+    \n\x0c\n\x05\x04\x01\x02\0\x04\x12\x03\x0b\x02\n\n\x0c\n\x05\x04\x01\x02\
+    \0\x05\x12\x03\x0b\x0b\x10\n\x0c\n\x05\x04\x01\x02\0\x01\x12\x03\x0b\x11\
+    \x18\n\x0c\n\x05\x04\x01\x02\0\x03\x12\x03\x0b\x1b\x1c\n\x0b\n\x04\x04\
+    \x01\x02\x01\x12\x03\x0c\x02\x1f\n\x0c\n\x05\x04\x01\x02\x01\x04\x12\x03\
+    \x0c\x02\n\n\x0c\n\x05\x04\x01\x02\x01\x05\x12\x03\x0c\x0b\x10\n\x0c\n\
+    \x05\x04\x01\x02\x01\x01\x12\x03\x0c\x11\x1a\n\x0c\n\x05\x04\x01\x02\x01\
+    \x03\x12\x03\x0c\x1d\x1e\
+";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {
     lock: ::protobuf::lazy::ONCE_INIT,

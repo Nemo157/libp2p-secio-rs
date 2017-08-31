@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 bytes = "0.4.4"
-protobuf = "*"
+protobuf = "1.4.1"
 tokio-core = "*"
 tokio-io = "0.1.2"
 
