@@ -13,6 +13,7 @@ use secstream::SecStream;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::{flush, read_exact, write_all};
 use tokio_io::codec::{Framed, FramedParts};
+use slog::Logger;
 
 use crypto::rand;
 use crypto::{HashAlgorithm, CipherAlgorithm, CurveAlgorithm};
@@ -39,11 +40,11 @@ fn select(proposal: &Propose, _order: Ordering) -> io::Result<(CurveAlgorithm, C
 }
 
 #[async]
-pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>, host: HostId, peer: PeerId) -> io::Result<(PeerId, SecStream<S>)> {
+pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(logger: Logger, transport: FramedParts<S>, host: HostId, peer: PeerId) -> io::Result<(PeerId, SecStream<S>)> {
     let transport = Framed::from_parts(transport, msgio::LengthPrefixed(msgio::Prefix::BigEndianU32, msgio::Suffix::None));
 
     // step 1. Propose -- propose cipher suite + send pubkeys + nonce
-    println!("secure handshake start");
+    info!(logger, "secure handshake start");
 
     let my_nonce = {
         let mut nonce = [0; NONCE_SIZE];
@@ -61,7 +62,10 @@ pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>,
         proposal
     };
 
-    println!("Sending proposal (curve, cipher, hash): {:?}", (my_proposal.get_exchanges(), my_proposal.get_ciphers(), my_proposal.get_hashes()));
+    info!(logger, "Sending proposal";
+        "curves" => my_proposal.get_exchanges(),
+        "ciphers" => my_proposal.get_ciphers(),
+        "hashes" => my_proposal.get_hashes());
 
     let my_proposal_bytes = Bytes::from(my_proposal.write_to_bytes().map_err(pbetio)?);
 
@@ -76,7 +80,10 @@ pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>,
     };
 
     let mut their_proposal: Propose = parse_from_bytes(&their_proposal_bytes).map_err(pbetio)?;
-    println!("Received proposal (curve, cipher, hash): {:?}", (their_proposal.get_exchanges(), their_proposal.get_ciphers(), their_proposal.get_hashes()));
+    info!(logger, "Received proposal";
+          "curves" => their_proposal.get_exchanges(),
+          "ciphers" => their_proposal.get_ciphers(),
+          "hashes" => their_proposal.get_hashes());
 
     // // step 1.1 Identify -- get identity from their key
     let peer = {
@@ -88,7 +95,7 @@ pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>,
         }
         actual_id
     };
-    println!("identified peer as: {:?}", peer);
+    info!(logger, "identified peer"; "peer" => ?peer);
 
     let order = {
         let order1 = MultiHash::generate_sha2_256(&Bytes::from(Vec::from_iter(their_proposal.get_pubkey().iter().chain(my_nonce.iter()).cloned())));
@@ -102,7 +109,7 @@ pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>,
 
     // step 1.2 Selection -- select/agree on best encryption parameters
     let (curve, cipher, hash) = select(&their_proposal, order)?;
-    println!("Selected (curve, cipher, hash): {:?}", (curve, cipher, hash));
+    info!(logger, "Selected"; "curve" => ?curve, "cipher" => ?cipher, "hash" => ?hash);
 
     // step 2. Exchange -- exchange (signed) ephemeral keys. verify signatures.
     let mut my_ephemeral_priv_key = curve.generate_priv_key()?;
@@ -123,7 +130,7 @@ pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>,
         exchange
     };
 
-    println!("Sending exchange");
+    info!(logger, "Sending exchange");
     let my_exchange_bytes = Bytes::from(my_exchange.write_to_bytes().map_err(pbetio)?);
 
     let transport = await!(transport.send(my_exchange_bytes))?;
@@ -137,7 +144,7 @@ pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>,
     };
 
     let their_exchange: Exchange = parse_from_bytes(&their_exchange_bytes).map_err(pbetio)?;
-    println!("Received exchange");
+    info!(logger, "Received exchange");
 
     // step 2.1. Verify -- verify their exchange packet is good.
     let their_corpus = {
@@ -149,20 +156,20 @@ pub fn handshake<S: AsyncRead + AsyncWrite + 'static>(transport: FramedParts<S>,
     };
 
     try!(peer.verify(&their_corpus, their_exchange.get_signature()));
-    println!("Verified exchange");
+    info!(logger, "Verified exchange");
 
     // step 2.2. Keys -- generate keys for mac + encryption
     let algos = my_ephemeral_priv_key.agree_with(their_exchange.get_epubkey(), hash, cipher, order == Ordering::Less)?;
 
     // step 3. Finish -- send expected message to verify encryption works (send local nonce)
     let parts = transport.into_parts();
-    let secstream = SecStream::new(parts, algos);
+    let secstream = SecStream::new(logger.clone(), parts, algos);
     let nonce = their_proposal.take_rand();
     let (secstream, _) = await!(write_all(secstream, nonce))?;
     let secstream = await!(flush(secstream))?;
     let (secstream, bytes) = await!(read_exact(secstream, [0; NONCE_SIZE]))?;
     if my_nonce[..] != bytes[..] {
-        println!("my nonce {:?}, they gave {:?}", my_nonce, bytes);
+        info!(logger, "my nonce {:?}, they gave {:?}", my_nonce, bytes);
         return Err(io::Error::new(io::ErrorKind::Other, "Nonces did not match"));
     }
 

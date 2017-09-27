@@ -6,6 +6,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{Decoder, Encoder, Framed, FramedParts};
 use msgio;
+use slog::Logger;
 
 use crypto::hash::{ Signer, Verifier };
 use crypto::cipher::{ Encryptor, Decryptor };
@@ -13,6 +14,7 @@ use crypto::shared::SharedAlgorithms;
 
 #[derive(Debug)]
 pub struct SecStream<S> where S: AsyncRead + AsyncWrite {
+    logger: Logger,
     done: bool,
     buffer: Cursor<Bytes>,
     inner: Framed<S, SecStreamCodec>,
@@ -25,8 +27,9 @@ struct SecStreamCodec {
 }
 
 impl<S> SecStream<S> where S: AsyncRead + AsyncWrite {
-    pub(crate) fn new(parts: FramedParts<S>, algos: SharedAlgorithms) -> SecStream<S> {
+    pub(crate) fn new(logger: Logger, parts: FramedParts<S>, algos: SharedAlgorithms) -> SecStream<S> {
         SecStream {
+            logger,
             done: false,
             buffer: Cursor::new(Bytes::new()),
             inner: Framed::from_parts(parts, SecStreamCodec::new(algos)),

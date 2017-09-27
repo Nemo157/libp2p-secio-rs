@@ -10,6 +10,8 @@ extern crate mhash;
 extern crate msgio;
 extern crate protobuf;
 extern crate tokio_io;
+#[macro_use]
+extern crate slog;
 
 mod data;
 mod handshake;
