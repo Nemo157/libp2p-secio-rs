@@ -19,7 +19,7 @@ path = "../libp2p-identity-rs"
 
 [dependencies.mhash]
 features = ["generation", "sha2"]
-version = "0.2.0"
+version = "0.3.0"
 
 [dependencies.msgio]
 path = "../msgio-rs"
